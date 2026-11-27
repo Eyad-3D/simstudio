@@ -518,8 +518,10 @@ def vehicle_coastdown(problem: Problem, step: float) -> Trace:
 def vehicle_constant_power(problem: Problem, step: float) -> Trace:
     """The E-Motor's full-load curve is P/ω (400 points from 90 % of the
     start speed to 60 m/s), through a 9:1 lossless final drive to one 0.3 m
-    wheel of no inertia; a stiff tyre (slip stiffness 100, μ 2: the solver
-    step falls to 1.43 ms) on a Vehicle of mass m with no drag."""
+    wheel of next to no inertia (1e-5 kg·m², 1.1e-4 kg of equivalent mass on
+    the car's 1500 kg: Data Checks refuse a shaft whose parts all have none);
+    a stiff tyre (slip stiffness 100, μ 2: the solver step falls to 1.43 ms)
+    on a Vehicle of mass m with no drag."""
     p, x0 = problem.parameters, problem.initial
     m, P, v0 = p["m"], p["P"], x0["v"]
     r, ratio = 0.3, 9.0
@@ -536,7 +538,7 @@ def vehicle_constant_power(problem: Problem, step: float) -> Trace:
            max_speed_rpm=n_max)
     b.part("fd", "mech.final_drive", ratio=ratio, efficiency_pct=100, inertia_in_kgm2=0,
            inertia_out_kgm2=0)
-    b.part("whl", "propulsion.wheel", radius_m=r, inertia_kgm2=0, rolling_resistance=0,
+    b.part("whl", "propulsion.wheel", radius_m=r, inertia_kgm2=1e-5, rolling_resistance=0,
            slip_stiffness=100, mu=2.0, vehicle_load_share_pct=100)
     b.part("veh", "vehicle.body", mass_kg=m, cd=0, frontal_area_m2=0, initial_speed_kmh=v0 * 3.6)
     b.part("dem", "signal.constant", value=1.0)

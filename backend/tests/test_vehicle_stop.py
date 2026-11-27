@@ -39,17 +39,19 @@ def test_a_coasting_car_stops_where_the_closed_form_says_and_stays_stopped():
     a = math.sqrt(A / C)
     t_stop = M / math.sqrt(A * C) * math.atan(V0 / a)
     x_stop = M / (2.0 * C) * math.log(1.0 + C * V0 * V0 / A)
-    stopped = next(t for t, s in v if s == 0.0)
+    # stopped: held there, its speed within the round-off the integrator
+    # holds a state to (the older engine's fixed steps gave exactly 0)
+    stopped = next(t for t, s in v if abs(s) < 1e-9)
     assert stopped == pytest.approx(t_stop, abs=0.011)  # (within the 10 ms step it falls in)
-    assert all(s == 0.0 for t, s in v if t >= stopped)  # and stays stopped
+    assert all(abs(s) < 1e-9 for t, s in v if t >= stopped)  # and stays stopped
     assert x[220.0] == pytest.approx(x_stop, rel=1e-4)
     # its kinetic energy went into the air and the tyres, and the books say so
     veh = next(f for f in r.partEnergy if f.label == "Vehicle")
     terms = {k: e * 3.6e6 for k, e in veh.terms.items()}
     assert terms["acceleration"] == pytest.approx(-0.5 * M * V0 * V0, rel=1e-12)
-    assert terms["rolling resistance"] == pytest.approx(A * x[220.0], rel=1e-9)
+    assert terms["rolling resistance"] == pytest.approx(A * x[220.0], rel=1e-6)  # (7e-8)
     assert terms["air drag"] + terms["rolling resistance"] == pytest.approx(
-        0.5 * M * V0 * V0, rel=1e-12)
+        0.5 * M * V0 * V0, rel=1e-6)  # (3.4e-8)
 
 
 def test_rolling_resistance_holds_a_car_on_a_slope_it_cannot_overcome():
@@ -61,7 +63,7 @@ def test_rolling_resistance_holds_a_car_on_a_slope_it_cannot_overcome():
     faster."""
     held = simulate(_coast(v0=1.0, duration=60.0, grade=-0.5), "case")
     v = [p["value"] for p in series(held, "veh", "sig_speed")]
-    assert v[-1] == 0.0 and max(v[-1000:]) == 0.0
+    assert abs(v[-1]) < 1e-9 and max(abs(x) for x in v[-1000:]) < 1e-9
     rolls = simulate(_coast(v0=0.0, duration=10.0, grade=-2.0), "case")
     v = [p["value"] / 3.6 for p in series(rolls, "veh", "sig_speed")]
     pull = M * 9.81 * math.sin(math.atan(0.02)) - A * math.cos(math.atan(0.02))

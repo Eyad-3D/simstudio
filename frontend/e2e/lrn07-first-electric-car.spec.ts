@@ -114,6 +114,7 @@ test("LRN-07: the tutorial's own car builds, checks and runs as its page says", 
   await runActiveCase(page);
   await expect(page.getByText(/^success$/).first()).toBeVisible({ timeout: 90_000 });
   quoted("LightSim gives 10.46 kWh/100 km with the values above");
-  await expect(headlineTile(page, "Consumption")).toContainText("10.461"); // (10.459 on today's engine)
+  // (10.460: 10.461 before the engine fixes of November 2026; 10.459 on today's engine)
+  await expect(headlineTile(page, "Consumption")).toContainText("10.46 kWh");
   await expect(headlineTile(page, "Distance driven")).toContainText("23.267");
 });

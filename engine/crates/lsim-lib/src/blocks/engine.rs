@@ -20,6 +20,13 @@ pub const FUEL_LHV: f64 = 42.9e6;
 /// the rev limiter's band above the rev limit, as a share of it (the
 /// backend's over-speed check does not count it: `ENGINE_REV_BAND`)
 pub const REV_BAND: f64 = 1e-3;
+/// the throttle above which the Engine fires with it: a Driver's command that
+/// lifts is clamped at exactly 0, so `throttle > 0` would touch its threshold
+/// and stay as it was (no sign change for root finding, and at the clamp's own
+/// event the command, located a hair early, still reads above 0): the engine
+/// kept firing at zero torque off its fuel map instead of cutting its fuel.
+/// Above this, a crossing; a throttle below it counts as none.
+pub const THR_ON: f64 = 1e-9;
 
 /// The engine's configuration.
 #[derive(Clone, Debug, PartialEq)]
@@ -277,7 +284,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
         eq(
             n("fired_thr"),
             ite(
-                and(gt(n("on"), c(0.5)), and(below_top.clone(), gt(n("thr"), c(0.0)))),
+                and(gt(n("on"), c(0.5)), and(below_top.clone(), gt(n("thr"), c(THR_ON)))),
                 c(1.0),
                 c(0.0),
             ),
@@ -290,7 +297,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                     gt(n("on"), c(0.5)),
                     and(
                         below_top.clone(),
-                        and(le(n("thr"), c(0.0)), le(n("wa"), n("fuel_cut_reentry_rpm"))),
+                        and(le(n("thr"), c(THR_ON)), le(n("wa"), n("fuel_cut_reentry_rpm"))),
                     ),
                 ),
                 c(1.0),
@@ -304,7 +311,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
         eq(
             n("lim"),
             ite(
-                noev(and(gt(n("on"), c(0.5)), and(gt(n("thr"), c(0.0)), not(below_top)))),
+                noev(and(gt(n("on"), c(0.5)), and(gt(n("thr"), c(THR_ON)), not(below_top)))),
                 noev(clamp(
                     (n("n_last") * c(1.0 + REV_BAND) - n("wa")) / (n("n_last") * c(REV_BAND)),
                     c(0.0),

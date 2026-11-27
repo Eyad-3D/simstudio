@@ -119,8 +119,13 @@ def test_a_propeller_keeps_its_books():
                          duration=20.0, time_step=0.1), "case")
     assert r.status in ("success", "warning"), [m.text for m in r.messages]
     prop = next(f for f in r.partEnergy if f.label == "Propeller")
-    assert prop.energyIn > 0.01 and prop.losses == pytest.approx(prop.energyIn)
-    assert abs(_residual_kwh(r)) < 0.005 * prop.energyIn
+    # what its load took is its loss; what spun up its own inertia went on
+    # to the driveline's Rotating parts row (the older engine counted only
+    # the load's share as the propeller's)
+    assert prop.energyIn > 0.01 and prop.losses > 0.5 * prop.energyIn
+    assert prop.losses + prop.energyOut == pytest.approx(prop.energyIn, rel=1e-6)
+    for f in r.partEnergy:  # every part's books close
+        assert f.energyIn - f.energyOut - f.losses - f.stored == pytest.approx(0.0, abs=1e-9)
     assert abs(r.energy.remainderPct) < 0.5
 
 

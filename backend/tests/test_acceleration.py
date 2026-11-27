@@ -148,30 +148,25 @@ def test_a_75_m_run_without_slip_matches_a_point_mass():
 
 
 def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
-    """The run stops at the end of the solver step that reaches 75 m, and the
-    time and speed are read inside that step, so the output step does not
-    change them. The time equals where the distance channel of a 10 ms
-    full-throttle performance run (which goes on past the line) crosses
+    """The run stops where the car reaches 75 m (an event, found to its
+    tolerance), and the time and speed are read there, so the output step
+    does not change them. The time equals where the distance channel of a
+    10 ms full-throttle performance run (which goes on past the line) crosses
     75 m."""
     fine = simulate(_bev(step=0.01), "case-city")
     coarse = simulate(_bev(step=0.1), "case-city")
     for label in ("Time to 75 m", "Speed at 75 m"):
         assert _rows(fine)[label].value == _rows(coarse)[label].value
     s = _rows(fine)
-    # (5.527 s and 86.11 km/h before the distance was the trapezoid of each
-    # step's speeds: the speed at the step's end, held over the step, ran
-    # 0.12 m ahead of it by the line)
-    assert s["Time to 75 m"].value == pytest.approx(5.533, abs=0.002)
-    assert s["Speed at 75 m"].value == pytest.approx(86.16, abs=0.02)
+    # (the older engine's 10 ms fixed step gave 5.533 s and 86.16 km/h; its
+    # own 2, 1 and 0.5 ms runs give 5.5475, 5.5478 and 5.5480 s)
+    assert s["Time to 75 m"].value == pytest.approx(5.546, abs=0.002)
+    assert s["Speed at 75 m"].value == pytest.approx(86.10, abs=0.02)
     dist = _values(fine, "el-vehicle", "sig_distance")
-    v_line = s["Speed at 75 m"].value / 3.6
-    assert 75.0 <= dist[-1] <= 75.0 + v_line * 0.01 + 1e-4
-    assert s["Simulated duration"].value < 5.6
+    assert dist[-1] == pytest.approx(75.0, abs=1e-5)  # it ends at the line
+    assert s["Simulated duration"].value == pytest.approx(s["Time to 75 m"].value, abs=1e-9)
     assert s["Time to 75 m"].limit == 25.0 and s["Time to 75 m"].passed is True
     assert fine.status == "success", [m.text for m in fine.messages]
-    assert any(m.level == "info" and "solved: 554 of 2500 steps × 0.01 s, ended at 75 m "
-               "driven at t = 5.54 s" in m.text
-               for m in fine.messages)
 
     perf = load_example("bev-car")
     case = perf.cases[0]
@@ -185,15 +180,16 @@ def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
 
 def test_the_start_line_starts_the_timer_and_the_gap_is_signed():
     """Staged 0.3 m behind the start line (FS Rules 2026 v1.1 (FSG) D 5.2.3), the
-    time runs from 0.3 m to 75.3 m driven: 5.216 s against 5.533 s from
-    rest. The gap to a reference time is positive when slower."""
+    time runs from 0.3 m to 75.3 m driven: 5.224 s against 5.546 s from
+    rest. The gap to a reference time is positive when slower. (The run ends
+    at 75.3 m, to the event's tolerance.)"""
     result = simulate(_bev(start=0.3, reference=5.0), "case-city")
     ts = [p["t"] for p in series(result, "el-vehicle", "sig_distance")]
     dist = _values(result, "el-vehicle", "sig_distance")
     s = _rows(result)
-    assert s["Time to 75 m"].value == pytest.approx(_at(ts, dist, 75.3) - _at(ts, dist, 0.3),
-                                                    abs=1e-3)
-    assert s["Time to 75 m"].value == pytest.approx(5.216, abs=0.002)
+    assert dist[-1] == pytest.approx(75.3, abs=1e-5)
+    assert s["Time to 75 m"].value == pytest.approx(ts[-1] - _at(ts, dist, 0.3), abs=1e-3)
+    assert s["Time to 75 m"].value == pytest.approx(5.224, abs=0.002)  # (older engine at 1 ms: 5.226)
     assert s["Gap to reference time"].value == pytest.approx(s["Time to 75 m"].value - 5.0,
                                                              abs=1e-3)
     assert s["Gap to reference time"].value > 0

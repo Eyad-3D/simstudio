@@ -27,8 +27,8 @@ LightSim runs every case on one simulation engine, the new engine (written
 in Rust). It replaced the older engine (written in Python) as the app's
 engine in this version, and nothing falls back to the older one: a case the
 new engine does not run fails at once, before any result, with an error
-that starts *Not run* and gives a reason code in brackets (for example
-`Not run [NEW-LIMITS]`, a value outside its parameter's limits).
+that starts *Not run*, says what stopped it and ends with a reason code in
+brackets (for example `[NEW-LIMITS]`, a value outside its parameter's limits).
 The older engine's code stays in the repository for developers and for the
 comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
 [README](../README.md)); the app does not run a case on it.
@@ -81,47 +81,25 @@ other numbers. Each fails with *Not run* or the engine's own message and a
 code. A test in the repository records each as an expected failure
 (`backend/tests/engine_marks.py`) until it is fixed.
 
-- **A value outside its parameter's limits, typed in the case, is refused**
-  (`NEW-LIMITS`). Data Checks look at the model's own values and a study's
-  base project, not at the case's Ambient or Vehicle values. A case that
-  sets an Ambient temperature of -300 °C, a Vehicle wheelbase of 0 or a
-  battery margin over 100 % is refused with the limit it breaks, where the
-  older engine clamped the value and warned. Bring the value inside its
-  limits.
-- **A part connected to nothing can fail where the older engine left it
-  out.** The older engine builds no part with nothing connected to it (a
-  battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft
-  drives nothing, a Climate Control on nothing) and runs the rest, with a
-  warning from Data Checks. The new engine builds it. A lone E-Motor fails
-  its start (`RUN-INIT`), a lone Climate Control the build (`STRUCT-OVER`),
-  and a lone Engine's, Fuel Cell Stack's or Battery's table with an axis
-  set to Error can stop the run (`RUN-TABLE`) where the table does not
-  cover where the part sits. Connect the part or delete it.
-- **A table set to Error stops the run in the engine's own words.** The
-  message names the table by its internal name and the time, not in the
-  older words, and a run it stops gives no partial result with its figures
-  marked not valid.
-- **Some notes and rows the older engine wrote are missing**: the note
-  that a motor at its maximum speed holds the car there, the time a Lookup
-  block spent outside its data on *Clamp* or *Linear*, the count of the
-  tables a run read past their data, and an early message that the car
-  does not move.
+- **A value outside its parameter's limits is refused** (`NEW-LIMITS`).
+  Data Checks refuse it, the part's own value or the case's over it (an
+  Ambient temperature of -300 °C, a Vehicle wheelbase of 0, a battery
+  margin over 100 %); a study's point, which they never see, is refused by
+  the run in the same words. The older engine clamped such a value and
+  warned. Bring the value inside its limits.
+- **One count the older engine kept is missing**: how many tables a run
+  read past their data (each such table still has its own rows).
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet**: the energy of a gear shift, a clutch that never locks exactly,
   the axle loads under load transfer, a car coasting up a grade (16.66
-  against 20.39 for the energy test's m g h), an idle car's final SOC
-  (89.9991 % against 90 %), the slip Traction Control holds after the
+  against 20.39 for the energy test's m g h), the slip Traction Control holds after the
   launch ramp (0.359 against under 0.3), the fuel an Engine coasting in
   gear burns (1.9 g/s, where the older engine cuts it), a car at rest that
   moves at 1e-14 m/s, and a propeller's books.
-- **A machine driven to its maximum speed can stop a run by switching
-  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill
-  grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its
-  gears x3), where the older engine warned or finished; and a motor driven
-  past its maximum speed in a top-speed test stops on its full-load map
-  (`RUN-TABLE`). See *A machine driven to its maximum speed can stop the
-  run* below.
+- **An Engine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`), where the older engine warned or
+  finished. See *A machine driven to its maximum speed* below.
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning
   rotor, the motor takes what the supply gives, and the rest of those
@@ -130,26 +108,25 @@ code. A test in the repository records each as an expected failure
   them, the losses the supply cannot pay are left out of the motor's
   losses. A battery near its *Minimum SOC* or full gives and takes less as
   it nears the limit (within about 10 ms of charge), as the older engine
-  did over its step.
-- **A battery driven to its limits and an empty battery's consumers can
-  fail where the battery reaches its limit** (`RUN-INIT` at about 2.2 s):
-  the new engine cannot start again from the state these cases reach.
+  did over its step, and nothing from 10⁻⁷ % of it.
 - **A model whose loss map has sheets of different range is refused**
   (`BLOCK`): the older engine counted a read outside the narrowest range,
   the new engine watches the widest.
-- **The reference suite's coast-down model is a loop the engine cannot solve
-  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so
-  the validation page's coast-down rows are not re-measured on the new
-  engine (see [What is validated](VALIDATION-STATUS.md)).
-- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`**,
-  even after it showed points: the wording says *Not run* where the run
-  showed, say, 321 s.
-- **A table edited during a live run takes effect on the next run**, and a
-  block's value at an output point is the one after its tick (a Script, FMU
+- **A shaft whose parts together have no inertia is refused by Data
+  Checks**, naming its parts: the new engine cannot work out how fast it
+  turns (`SINGULAR-LOOP`), where the older engine lumped every inertia
+  together. One part with an inertia is enough (a brake with none on a
+  wheel with one runs).
+- **A run the engine's integrator stops part-way fails with *Not run* and
+  `NEW-FAILED`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed
+  points: the wording says *Not run* where the run showed, say, 321 s. (A
+  table on Error or a value that is not a number keeps its trace up to the
+  stop.)
+- **A table or a Driving Task's profile edited during a live run takes
+  effect on the next run** (the engine builds them into the model as data),
+  with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU
   or Delay), where the older engine showed the one before. The *Live runs*
   bullet below has the rest.
-- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one
-  is 27 bytes over).
 
 ## Results that can be wrong today
 
@@ -897,10 +874,13 @@ minimum or an average, for example from the CSV export, or put the
   the widest. A Driving Task's or a Road Profile's profile run past its
   end is not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says
   so.
-  Its Driver can ask a motor for more recuperation than its supply
-  takes, where the older engine's never asked it: the run then says the
-  charging was held back, or, on a fuel cell, which takes nothing back,
-  that it cannot take power back. It asks whether the car has driven by
+  Its Driver's Traction Command is the recuperation it asks for, and the
+  motor's supply cuts it to what it takes, the friction brakes taking the
+  rest; the older engine's Driver asked only for what the supply took. The
+  braking, the recuperation and the motor's torque are the same; the
+  Traction Command channel shows the larger share. Without friction brakes
+  the motor is held, and the run says the charging was held back, or, on a
+  fuel cell, which takes nothing back, that it cannot take power back. It asks whether the car has driven by
   60 s at every 0.1 s of its run, the older engine at the end of each
   output step, so a cycle whose first 100 m end inside an output step can
   warn on the new engine where the older engine, at that step, did not.
@@ -927,15 +907,18 @@ minimum or an average, for example from the CSV export, or put the
   is read, and ends `success`. Some edits take effect on the next run: one
   for which the engine builds another model (a Differential's Type, a
   Driving Task's mode or repeat, a Climate Control's heat source), one the
-  checks after the run would read as it was at the start (the Ambient's
-  temperature or pressure, a battery's minimum SOC or charge power, an
-  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area), and a
-  Sample Time that changes when a PID or Lookup block samples. Such an
+  checks after the run would read as it was at the start (a battery's
+  minimum SOC or charge power, a Vehicle's CG height or Downforce Area),
+  and a Sample Time that changes when a PID or Lookup block samples. (An
+  E-Motor's maximum speed and the Ambient's temperature and pressure are
+  made live: the check of the time above the maximum, and of air outside
+  the usual, follows the edit's time.) An edit
+  already there before the run's first step is made at t = 0. Such an
   edit, and one too late for the run, is listed in the run's live edits
   with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's
   (an E-Motor's torque, speed or voltage scale among them). A table sent to
-  a live run (the app sends none) takes effect on the next run too, noted
-  in the run's log only. A live run the engine fails fails with its reason
+  a live run (the app sends none) takes effect on the next run too, and so
+  does a Driving Task's profile, each noted in the run's messages. A live run the engine fails fails with its reason
   code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a fault
   in the path after the run) and does not start again, with or without a
   Stop or an edit read before it. A live edit that later moves the run past
@@ -1024,8 +1007,11 @@ minimum or an average, for example from the CSV export, or put the
   still running. With a time limit either stops sooner, with
   `RUN-TIME-LIMIT`, saying how far it got. A variable that is not a number or is infinite at an output time
   (an output that divides by zero, say) is never a result: the run stops
-  at that time with `RUN-NOT-FINITE`, naming the variable. *Roadmap:*
-  ENG-16.
+  at that time, naming the part by its label and the port. A run a table
+  set to Error or a value that is not a number stops keeps its trace up to
+  its last output point before the stop (the run is made again to there),
+  fails, and has its figures marked not valid, as the older engine did;
+  where the stop is at the start there is no trace. *Roadmap:* ENG-16.
 - **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine
   runs a PID block, and a Lookup block with a Sample Time over 10 ms, at
   the instants the older engine did: every 10 ms step while the Sample Time
@@ -1041,37 +1027,29 @@ minimum or an average, for example from the CSV export, or put the
   Traction Control block with a Sample Time on the output grid shows its value
   just after the tick at an output point, where the older engine showed the
   value before it. *Roadmap:* ENG-16.
-- **A machine driven to its maximum speed can stop the run.** A motor or
-  engine driven above its maximum speed by something else (a downhill
-  grade, an engine or another motor on its shaft) is not a case of the
-  table stopping the run: the engine reads the motor's full-load and loss
-  maps at its speed held to the maximum (above it the inverter is off and
-  they are not used), as the older engine did. It can still stop at the
-  limit itself (`NEW-FAILED`, `RUN-EVENT-STORM`): where the driver brakes
-  and gravity or another source drives the motor up to its maximum
-  speed, the brake works below it and not above, and the speed switches
-  about the limit without end, which the older engine, with a fixed step
-  that lets a machine carry past by a step, did not notice (a downhill
-  cycle run of the example BEV or aero car with its Final Drive ratio x3;
-  the hybrid with its ratio x3 on a 6 % downhill grade, where the Engine
-  switches between fired and not fired). The older engine finished the
-  run, or warned that the engine went past its maximum speed or the battery
-  was full. Such a run now fails with its code, and no longer starts again
-  on another engine. The hybrid on the highway cycle at that ratio
-  downhill does not switch so: it runs to its end and warns, as the older
-  engine did, but also gives the battery's "charging exceeds max charge
-  power" warning, which the older engine did not give (browser test ENG-34
-  records it). *Roadmap:* ENG-16.
+- **A machine driven to its maximum speed.** A motor or engine driven
+  above its maximum speed by something else (a downhill grade, an engine
+  or another motor on its shaft) is not a case of the table stopping the
+  run: the engine reads the motor's full-load and loss maps at its speed
+  held to the maximum (above it the inverter is off and they are not
+  used), as the older engine did. An E-Motor's inverter, off above its
+  maximum speed, runs again 0.1 % below it (where its taper gives it 5 %
+  of its full-load torque), so a motor driven over its maximum and slowing
+  back settles inside its band: the example BEV's and aero car's WLTC on
+  a 6 % downhill grade with the Final Drive ratio x3, and the hybrid's
+  Mixed and highway cycles there, run to their end. An Engine has no such
+  margin and can still stop at its limit (`NEW-FAILED`,
+  `RUN-EVENT-STORM`), where the older engine, with a fixed step that lets
+  a machine carry past by a step, finished or warned. *Roadmap:* ENG-16.
 - **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0
   follows the cycle (on the BEV, within 1.6 km/h), where the older engine
   lagged it by about 17 km/h and warned. The run shows success, not that
   warning, because the two engines' Drivers differ. *Roadmap:* ENG-16.
 - **A value outside its limits is refused.** A study's point can hold a
   value that Data Checks would refuse for a single run (a negative
-  pressure, a CG height below 0, a wheel's load share of 0), and so can a
-  case's own Ambient or Vehicle value: the older engine read many such
-  values clamped, the new engine refuses the run with the code
-  `NEW-LIMITS` and the limit it breaks. Inside the limits, the older
+  pressure, a CG height below 0, a wheel's load share of 0): the older
+  engine read many such values clamped, the new engine refuses the run
+  with the code `NEW-LIMITS` and Data Checks' own words. Inside the limits, the older
   engine put a floor under some values that the new engine reads as typed,
   among them the Ambient's temperature at -273 °C (its limit is above
   -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm, a

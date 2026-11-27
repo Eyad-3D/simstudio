@@ -953,7 +953,11 @@ impl<'a> Builder<'a> {
                 v.dedup();
                 v
             };
-            let def = regen_cap(&terms, &all_gbs);
+            // each blended motor's share of its command its supply allows,
+            // for the friction brakes to take what it cuts (a motor is
+            // blended only with friction brakes: its mapping)
+            let cut: Vec<bool> = terms.iter().map(|t| self.has_port(&t.0, "k_supply")).collect();
+            let def = regen_cap(&terms, &all_gbs, &cut);
             let values: Vec<(String, f64)> =
                 terms.iter().enumerate().map(|(i, t)| (format!("k{}", i + 1), t.1)).collect();
             let vals: Vec<(&str, f64)> = values.iter().map(|(a, b)| (a.as_str(), *b)).collect();
@@ -965,6 +969,12 @@ impl<'a> Builder<'a> {
                 self.link(format!("{}.ratio_now", self.inst(g)), format!("{h}.r{}", j + 1));
             }
             self.link(format!("{h}.y"), format!("{di}.regen_cap"));
+            if cut.iter().any(|x| *x) {
+                for (i, t) in terms.iter().enumerate().filter(|(i, _)| cut[*i]) {
+                    self.link(format!("{}.k_supply", self.inst(&t.0)), format!("{h}.f{}", i + 1));
+                }
+                self.link(format!("{h}.cut"), format!("{di}.regen_cut"));
+            }
         }
         // the friction brakes' torque at the wheels at a full command
         let fr_cap: f64 = facts
@@ -1475,12 +1485,21 @@ fn signal_ports(def: &ComponentDef) -> (Vec<String>, Vec<String>) {
 }
 
 /// The motors' generator torque at the wheels, for the driver's blending:
-/// y = Σ k_m · t_m · Π (current ratio of each gearbox below motor m).
-fn regen_cap(terms: &[(String, f64, Vec<String>)], gearboxes: &[String]) -> ComponentDef {
-    use lsim_lib::x::{input, output, p};
+/// y = Σ k_m · t_m · Π (current ratio of each gearbox below motor m); and
+/// of it, what the supplies of the windowed motors (`cut[m]`) cut back:
+/// cut = Σ (1 − f_m) · (its term), f_m the share of its command its supply
+/// allows, taken as 1 within 1e-12 of it (so that the cut is exactly 0
+/// where nothing is cut: the solved share is 1 only to round-off).
+fn regen_cap(
+    terms: &[(String, f64, Vec<String>)],
+    gearboxes: &[String],
+    cut: &[bool],
+) -> ComponentDef {
+    use lsim_lib::x::{input, ite, lt, noev, output, p};
     let mut ports = vec![];
     let mut params = vec![];
     let mut sum: Option<Expr> = None;
+    let mut cut_sum: Option<Expr> = None;
     let mut fp: Vec<f64> = vec![terms.len() as f64, gearboxes.len() as f64];
     for (i, t) in terms.iter().enumerate() {
         ports.push(input(&format!("t{}", i + 1), "N.m", "a motor's generator torque limit"));
@@ -1496,6 +1515,17 @@ fn regen_cap(terms: &[(String, f64, Vec<String>)], gearboxes: &[String]) -> Comp
             e = e * n(&format!("r{j}"));
             fp.extend([i as f64, j as f64]);
         }
+        if cut[i] {
+            let f = n(&format!("f{}", i + 1));
+            ports.push(input(&format!("f{}", i + 1), "1", "its share its supply allows"));
+            let short = ite(noev(lt(f.clone(), c(1.0 - 1e-12))), c(1.0) - f, c(0.0));
+            let ec = short * e.clone();
+            cut_sum = Some(match cut_sum {
+                None => ec,
+                Some(s) => s + ec,
+            });
+            fp.push(-(i as f64) - 1.0);
+        }
         sum = Some(match sum {
             None => e,
             Some(s) => s + e,
@@ -1505,16 +1535,20 @@ fn regen_cap(terms: &[(String, f64, Vec<String>)], gearboxes: &[String]) -> Comp
         ports.push(input(&format!("r{j}"), "1", "a gearbox's current ratio"));
     }
     ports.push(output("y", "N.m", "the motors' generator torque at the wheels"));
+    let mut equations = vec![];
+    if let Some(s) = cut_sum {
+        ports.push(output("cut", "N.m", "what their supplies cut back of it"));
+        equations.push(lsim_ir::component::build::eq(n("cut"), s, "Σ (1 − f)·k·t·ratios"));
+    }
     ComponentDef {
         name: format!("Import.RegenCap_{}", lsim_lib::signal::fingerprint(fp)),
         doc: "The motors' generator torque at the wheels (the driver's blending).".into(),
         ports,
         params,
-        equations: vec![lsim_ir::component::build::eq(
-            n("y"),
-            sum.unwrap_or(c(0.0)),
-            "Σ k·t·ratios",
-        )],
+        equations: [lsim_ir::component::build::eq(n("y"), sum.unwrap_or(c(0.0)), "Σ k·t·ratios")]
+            .into_iter()
+            .chain(equations)
+            .collect(),
         ..Default::default()
     }
 }
@@ -1719,6 +1753,13 @@ pub fn standard_registry() -> Registry {
             f.windowed(&el.id),
         )?;
         cfg.inverse = f.inverse;
+        // a Driver blends its recuperation with friction brakes (driver())
+        cfg.blended = cfg.windowed
+            && !f.inverse
+            && f.driver.is_some()
+            && !f.full_throttle
+            && f.kin_of(&el.id, "shaft").is_some()
+            && f.of_kind("mech.brake").any(|b| b.num("max_torque_Nm", 0.0) > 0.0);
         Ok(Mapped::of(motor::emotor(&cfg)).with(cfg.values()?).with(w0(el, f, "shaft", "w0")))
     });
     add!("vehicle.body", |el: &Element, f: &Facts| {

@@ -16,6 +16,7 @@ sections.
 
 | What changed | Effect on results | Roadmap |
 |---|---|---|
+| An E-Motor's inverter is off while the car stands with no command, at the start of a cycle as at every stop. Before, a car standing at its target from the start kept it on for as long as it stood there (a command of rounding, 4·10⁻¹² of full), drawing the loss map's standstill loss, about 0.1 kW | Consumption falls by that loss over each cycle's first stand (the UDDS stands for 20 s, the WLTC for 11 s): the aero BEV's UDDS by 0.04 % (9.5163 kWh/100 km), its first bag by 0.07 %; the WLTCs' Low phase by up to 0.08 %, the whole WLTC by under 0.01 %; the hybrid's UDDS fuel by 0.01 % | — |
 | Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies, fuel and consumption move by at most 0.001 kWh or kg (BEV WLTC ends at 84.93 % instead of 84.61 %, 84.92 % with the air density below; hybrid fuel consumption unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
 | E-Motors stop at their maximum speed: the drive torque falls to zero over the last 2 % below it, and above it the inverter is off (no drive, no regeneration) | A 300 km/h target on the default motor now tops out at 152 km/h with the motor at 11,921 of 12,000 1/min, instead of 269 km/h at 21,238 1/min on made-up torque. The examples do not reach their maximum speeds | MOD-18 |
 | Motor and engine maps no longer extend their data: a run that reads a motor's full-load map outside its speed data, a motor's loss map or an engine's fuel map outside its speed or torque data, or a fuel cell's polarization curve outside its current data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
@@ -1035,7 +1036,7 @@ sections.
   change. Their energy at the wall is within 8 % of EPA's unadjusted
   figures on all eight (4.1 % on average); a virtual coast-down gives back
   EPA's road load within 0.02 %, and an exact-answer tier of three
-  coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
+  coast-downs is within 0.003 %. [What is validated](VALIDATION-STATUS.md)
   has the table and what it does not show. The files are in
   `backend/validation/` and do not ship in the installer.
 - Sources & credits (VAL-37): *Run info* lists the data and methods each

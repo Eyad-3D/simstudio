@@ -1508,7 +1508,9 @@ def test_a_planted_value_outside_its_limits_is_one_the_new_path_checks():
         project, case_id = runs.fault_project(fault)
         return value_problems(Project.model_validate(project), case_id)
     assert problems("bev-car:el-ambient.pressure_kPa:zero") == ["Pressure of 'Ambient' must be above 0 kPa — got 0"]
-    assert problems("bev-car:case/el-ambient.pressure_kPa:zero") == problems("bev-car:el-ambient.pressure_kPa:zero")
+    # (a case's own value: the same words, and which case)
+    assert problems("bev-car:case/el-ambient.pressure_kPa:zero") == [
+        "Pressure of 'Ambient' in case 'City Cycle' must be above 0 kPa — got 0"]
     [mass] = problems("bev-car:el-vehicle.mass_kg:negative")
     assert mass.startswith("Vehicle Mass of 'Vehicle' must be above 0 kg — got -")
     assert problems("bev-car:el-vehicle.mass_kg:div100") == []

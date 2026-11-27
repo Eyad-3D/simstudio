@@ -49,9 +49,8 @@ from .solver.network import (
     resolve_params,
 )
 from .solver.profiles import distance_axis, parse_profile
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density, ocv_mean
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, RPM, air_density, ocv_mean
 from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
-from .solver.stability import solver_step
 from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -115,10 +114,15 @@ def value_problems(project: Project, case_id: str) -> list[str]:
         for el in system.elements:
             cdef = defs.get(el.componentDefId)
             for pdef in cdef.parameters if cdef else ():
-                value = over.get(el.id, {}).get(pdef.key, el.parameterOverrides.get(pdef.key, pdef.default))
+                own = pdef.key in over.get(el.id, {})
+                value = over[el.id][pdef.key] if own else el.parameterOverrides.get(pdef.key, pdef.default)
                 if pdef.type == "number" and (problem := _number_problem(pdef, value)):
-                    out.append(f"{_name(pdef)} of '{el.label}' {problem}")
+                    where = f" in case '{case.name}'" if own else ""
+                    out.append(f"{_name(pdef)} of '{el.label}'{where} {problem}")
     return out
+
+
+JOINT_KINDS = ("mech.differential", "mech.transfer_case", "mech.clutch")
 
 
 def run_blockers(checks: Iterable, case_id: str | None) -> list:
@@ -368,9 +372,9 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         _plausibility_checks(model, add)
         _map_checks(model, add)
+        _inertia_checks(project, model, case_models, add)
         _lap_checks(project, case_models, add)
         _distance_checks(project, model, add)
-        _step_checks(project, model, case_models, add)
 
         coasting = any(m is not None and _moves_unpowered(m)
                        for m in (model, *case_models.values()))  # (a coast-down is something)
@@ -378,7 +382,8 @@ def validate_project(project: Project) -> list[DataCheck]:
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
 
     if not any(s.elements for s in project.systems):
-        add("info", "Model is empty — drag components from the library onto the canvas.")
+        add("error", "The diagram is empty: add parts first.",
+            fix="Drag parts from the library onto the diagram, or open an example.")
     if not project.cases:
         add("warning", "Project has no simulation case defined.",
             fix="On the Simulations tab, click + (Add case).")
@@ -497,7 +502,7 @@ MODEL_FIXES = {
                                               "parts that drive no wheels.",
     "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
     "has no layout": "Choose a Layout from the list in Properties.",
-    "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "
+    "form a loop": "If a tick's delay matters, break the loop: feed one of the blocks from a "
                    "signal outside it, or merge the blocks into one Script.",
 }
 
@@ -532,6 +537,47 @@ def _moves_unpowered(model: Model) -> bool:
         return True
     src = model.signal_route.get((veh, "sig_grade_in"))
     return src is not None and _slope_can_pull(model, src[0])
+
+
+def left_out(project: Project, model: Model) -> dict[str, tuple[str, str]]:
+    """The parts the simulation leaves out because nothing is connected to
+    them (part id: the Data Checks' words and fix): a part with a mechanical
+    port on no driveline, one with an electrical + terminal left unwired, an
+    Electric Node wired to nothing. The one rule: Data Checks say it, and the
+    hand-over of a project to the engine (a full run, quick mode, a lap)
+    ships it without them (new_engine.engine_project). An E-Motor or Engine
+    is not left out (Data Checks refuse an unwired one), nor is a Ground."""
+    cdef_of, elements = model.cdef_of, model.elements
+    dl_of = {e for dl in model.drivelines for e in dl.element_group}
+    wired: set[tuple[str, str]] = set()
+    for system in project.systems:
+        for c in system.connections:
+            a, b = (c.sourceElementId, c.sourcePortId), (c.targetElementId, c.targetPortId)
+            if a[0] in cdef_of and b[0] in cdef_of and a[0] != b[0]:
+                wired |= {a, b}
+    out: dict[str, tuple[str, str]] = {}
+    for el_id, cdef in cdef_of.items():
+        if cdef.id in PROPULSION or cdef.id == "boundary.ground":
+            continue  # motors/engines are checked in _drive_checks; an idle ground is harmless
+        label = elements[el_id].label
+        mech = any(p.kind == "mechanical" for p in cdef.ports)
+        plus = [p for p in cdef.ports if p.kind == "electrical" and p.polarity == "positive"]
+        if mech and el_id not in dl_of:
+            note = (" — it carries none of the vehicle's weight or rolling resistance"
+                    if cdef.id == "propulsion.wheel" else "")
+            out[el_id] = (f"'{label}' is not connected to anything, so the simulation leaves "
+                          f"it out{note}.", "Wire it into the model, or delete it.")
+        elif plus:
+            loose = [p.name for p in plus if (el_id, p.id) not in wired]
+            if loose:
+                out[el_id] = (f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
+                              f"the simulation leaves it out.",
+                              "Wire it to the electrical bus (a battery's + terminal or an "
+                              "Electric Node).")
+        elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
+            out[el_id] = (f"'{label}' is not connected to anything, so the simulation leaves "
+                          f"it out.", "Wire it into the bus, or delete it.")
+    return out
 
 
 def _drive_checks(project: Project, model: Model, case_models: dict[str, Model | None],
@@ -586,28 +632,8 @@ def _drive_checks(project: Project, model: Model, case_models: dict[str, Model |
                 mech_nbrs[b[0]].add(a[0])
 
     # -- parts the solver leaves out because nothing is connected to them ------
-    for el_id, cdef in cdef_of.items():
-        if cdef.id in PROPULSION or cdef.id == "boundary.ground":
-            continue  # motors/engines are checked below; an idle ground is harmless
-        label = elements[el_id].label
-        mech = any(p.kind == "mechanical" for p in cdef.ports)
-        plus = [p for p in cdef.ports if p.kind == "electrical" and p.polarity == "positive"]
-        if mech and el_id not in dl_of:
-            note = (" — it carries none of the vehicle's weight or rolling resistance"
-                    if cdef.id == "propulsion.wheel" else "")
-            warn(el_id, f"'{label}' is not connected to anything, so the simulation leaves "
-                        f"it out{note}.",
-                 fix="Wire it into the model, or delete it.")
-        elif plus:
-            loose = [p.name for p in plus if (el_id, p.id) not in wired]
-            if loose:
-                warn(el_id, f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
-                            f"the simulation leaves it out.",
-                     fix="Wire it to the electrical bus (a battery's + terminal or an Electric "
-                         "Node).")
-        elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
-            warn(el_id, f"'{label}' is not connected to anything.",
-                 fix="Wire it into the bus, or delete it.")
+    for el_id, (text, fix) in left_out(project, model).items():
+        warn(el_id, text, fix=fix)
 
     # -- energy: every E-Motor needs a source on its bus -------------------------
     fed_from = {d: bus for bus in model.buses for d in bus.dcdc_in}
@@ -905,43 +931,6 @@ def _lap_checks(project: Project, case_models: dict[str, Model | None], add: Add
         for level, text, parts in lapsim.problems(model, case.outputEvery):
             add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
                 fix=_model_fix(text), case=case)
-
-
-def _step_checks(project: Project, base_model: Model, case_models: dict[str, Model | None],
-                 add: Add) -> None:
-    """The solver step each case will use (stability.solver_step, ENG-14):
-    a note when a part too stiff for the 10 ms step makes it smaller (the run
-    takes longer, but its results hold), a warning when one is too stiff even
-    for the smallest step."""
-    seen: set[str] = set()
-    base = None
-    for case in [None, *project.cases]:
-        if case is not None and (case.kind == "lap" or not case.parameterOverrides):
-            continue  # the lap solver steps along the track; no values of its own: as the model
-        model = base_model if case is None else case_models.get(case.id)
-        if model is None:
-            continue  # its values do not build: reported already
-        choice = solver_step(model)
-        if case is None:
-            base = choice
-        elif (choice.step, choice.warnings) == (base.step, base.warnings):
-            continue  # its own values change nothing here
-        where = f"In case '{case.name}', " if case is not None else ""
-        if choice.step < MAX_SUBSTEP:
-            text = (f"{where}{choice.reason} is too stiff for the solver's {MAX_SUBSTEP * 1000:g} ms "
-                    f"step: the run will use {choice.step * 1000:.3g} ms and take about "
-                    f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
-            if text not in seen:
-                seen.add(text)
-                add("info", text, ids=choice.el_ids, case=case,
-                    fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
-                        "Stiffness is about 10 to 30).")
-        for text, ids in choice.warnings:  # (each one a part too stiff for any step)
-            if text in seen:
-                continue
-            seen.add(text)
-            add("warning", f"{where}{text}", ids=ids, case=case,
-                fix="Lower the value: the solver cannot step it reliably.")
 
 
 def _distance_checks(project: Project, model: Model, add: Add) -> None:
@@ -1281,6 +1270,54 @@ def _cell_pack_checks(p: dict, el, add: Add) -> None:
         add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
                        f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
                        f"take no charge. Check the value.", el, param="cell_max_voltage_V")
+
+
+def _inertia_checks(project: Project, model: Model, case_models: dict, add: Add) -> None:
+    """A shaft whose parts together have no inertia: the run cannot work out
+    how fast it turns (the new engine refuses the model, SINGULAR-LOOP).
+    A shaft is a rigid stretch of a driveline, between its differentials,
+    transfer cases and clutches (a locked differential or transfer case joins
+    its sides); one part with an inertia is enough. Checked with the parts'
+    own values and with each case's values over them."""
+    said: set[tuple[str, ...]] = set()
+    cases = {c.id: c for c in project.cases}
+    for case_id, m in ((None, model), *case_models.items()):
+        if m is None:
+            continue
+        for dl in m.drivelines:
+            group = list(range(len(dl.segments)))
+
+            def root(i: int) -> int:
+                while group[i] != i:
+                    i = group[i]
+                return i
+            for j in dl.joints:
+                if j.kind == "split" and j.locked:
+                    for c in (j.child_a, j.child_b):
+                        if j.parent_seg >= 0 and c >= 0:
+                            group[root(c)] = root(j.parent_seg)
+            shafts: dict[int, list] = {}
+            for i, seg in enumerate(dl.segments):
+                shafts.setdefault(root(i), []).append(seg)
+            for segs in shafts.values():
+                parts = sorted({el for seg in segs for el in seg.element_ms
+                                if el in m.elements and m.cdef_of[el].id not in JOINT_KINDS})
+                if not parts or any(j > 0 for seg in segs for _, j, _ in seg.lumps):
+                    continue
+                key = tuple(parts)
+                if key in said:
+                    continue
+                said.add(key)
+                names = [m.elements[el].label for el in parts]
+                joined = (f"'{names[0]}'" if len(names) == 1 else
+                          ", ".join(f"'{n}'" for n in names[:-1]) + f" and '{names[-1]}'")
+                case = cases.get(case_id) if case_id else None
+                where = f" in case '{case.name}'" if case else ""
+                add("error", (f"The shaft of {joined} has no inertia{where}: every part on it has an "
+                              f"inertia of 0, so the run cannot work out how fast it turns."),
+                    ids=parts, case=case,
+                    fix="Give one of them an inertia (a wheel's or a brake disc's is typically "
+                        "0.5 to 1.5 kg·m², a motor rotor's 0.02 to 0.1 kg·m²).")
 
 
 def _map_checks(model: Model, add: Add) -> None:

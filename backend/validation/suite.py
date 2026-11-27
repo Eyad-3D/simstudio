@@ -285,10 +285,18 @@ def _quadratic_fit(pts: list[tuple[float, float]]) -> tuple[float, float, float]
 
 # ---- exact-answer tier ---------------------------------------------------------------
 
+# the rolling parts' inertia of the exact coast-downs: none would leave a
+# shaft whose speed nothing decides (Data Checks refuse it); this much on each
+# of the wheels, brakes, the motor, the differential and the final drive is
+# (10 + 2 × 12.8²) × 1e-5 / 0.3488² = 0.028 kg of equivalent mass, about 2e-5 of
+# the cars' (the tier's band is 0.1 %)
+J_TINY = 1e-5
+
+
 def _coast_project(mass: float, v0: float, a: float, b: float, c: float, duration: float):
     """A car with no motor in action: the Battery Electric Car with nothing
-    commanding the motor or the brakes, no rolling inertia and the given
-    road-load coefficients."""
+    commanding the motor or the brakes, next to no rolling inertia (J_TINY)
+    and the given road-load coefficients."""
     proj = load_example("bev-car")
     for el in proj.systems[0].elements:
         d = el.componentDefId
@@ -297,9 +305,9 @@ def _coast_project(mass: float, v0: float, a: float, b: float, c: float, duratio
                 "mass_kg": mass, "initial_speed_kmh": v0, "road_load_mode": "Coefficients A/B/C",
                 "road_load_a_N": a, "road_load_b_N_per_kmh": b, "road_load_c_N_per_kmh2": c})
         if d in ("propulsion.wheel", "mech.brake", "motor.emotor", "mech.differential"):
-            el.parameterOverrides["inertia_kgm2"] = 0
+            el.parameterOverrides["inertia_kgm2"] = J_TINY
         if d == "mech.final_drive":
-            el.parameterOverrides.update({"inertia_in_kgm2": 0, "inertia_out_kgm2": 0})
+            el.parameterOverrides.update({"inertia_in_kgm2": J_TINY, "inertia_out_kgm2": J_TINY})
         if d == "motor.emotor":
             el.parameterOverrides["drag_torque"] = {"0": 0, "16000": 0}
             el.parameterOverrides["power_loss"] = {"0": {"0": 0, "310": 0}, "16000": {"0": 0, "310": 0}}

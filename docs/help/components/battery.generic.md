@@ -67,7 +67,8 @@ A = OCV − U₁, the voltage behind R0:
   discharging and I_full = (100 % − SOC)·Q ÷ (η_c·10 ms) charging. These
   are the currents that would reach *Minimum SOC* (%) or 100 % within
   10 ms, so the window closes smoothly in the last moments before the
-  limit, with no switch.
+  limit. Within 10⁻⁷ % of the limit it shuts: the battery then gives (or
+  takes) nothing until the current turns.
 
 Then:
 

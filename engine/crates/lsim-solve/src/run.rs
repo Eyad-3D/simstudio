@@ -379,6 +379,8 @@ struct Loop<'a> {
     outside_since: Vec<Option<f64>>,
     /// the channels where a guard's branches are read ([`Loop::read_in_use`])
     when_vars: Vec<f64>,
+    /// an Error axis's reading as the run stops on it ([`Loop::reading_at`])
+    reading: Option<(f64, f64, f64)>,
     /// per table guard: time spent outside, and when it first left
     outside_total: Vec<(f64, f64)>,
     /// per table guard: the furthest its argument was read past the data
@@ -2563,6 +2565,34 @@ impl Loop<'_> {
         Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
     }
 
+    /// Guard `k`'s table axis's first and last point and its argument at
+    /// `(t, y, d)` (the channels evaluated there); `None` where the run does
+    /// not know them.
+    fn reading_at(&mut self, k: usize, t: f64, y: &[f64], d: &[f64]) -> Option<(f64, f64, f64)> {
+        let l = self.model.layout();
+        self.when_vars.resize(l.n_vars, 0.0);
+        let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
+        self.model.vars(&inp, &mut self.work, &mut self.when_vars);
+        let guards = self.model.table_guard_list();
+        let (g, (table, arg)) = (guards.get(k)?, self.info.table_args.get(k)?);
+        if self.info.table_args.len() != guards.len() || *table != g.table {
+            return None;
+        }
+        let k_t = g.table as usize;
+        let points = match self.info.table_axes.get(k_t) {
+            Some(ax) if !ax.is_empty() => ax.get(g.axis as usize)?,
+            _ => self.info.table_breaks.get(k_t)?,
+        };
+        let (lo, hi) = (*points.first()?, *points.last()?);
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.when_vars,
+            params: &self.info.params,
+            model: self.model,
+        };
+        Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
+    }
+
     /// At a step's end, the channels just sampled: how far past its data
     /// each table read outside it now is, kept when it is the furthest.
     fn track_outside(&mut self, t: f64) {
@@ -2634,6 +2664,7 @@ impl Loop<'_> {
             let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
             if a < 0.0 && error {
                 if self.read_in_use(k, t, y, d) && !self.on_the_edge(t, y, d, k) {
+                    self.reading = self.reading_at(k, t, y, d);
                     self.leave_table(k, t, g)?;
                 }
             } else if a < 0.0 && self.outside_since[k].is_none() {
@@ -2684,10 +2715,16 @@ impl Loop<'_> {
             .cloned()
             .unwrap_or_else(|| format!("table {}", g.table));
         if g.outside == lsim_ir::table::Outside::Error {
+            // (the value read and the axis's data, where the run knows them:
+            // the app says them in the user's units)
+            let read = match self.reading.take() {
+                Some((lo, hi, a)) => format!(" (read at {a}; its data {lo} to {hi})"),
+                None => String::new(),
+            };
             return Err(SolveError::TableOutside {
                 t,
                 message: format!(
-                    "the table '{name}' was read outside its data on its {} axis, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
+                    "the table '{name}' was read outside its data on its {} axis{read}, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
                     self.info.axis_words(g.table, g.axis),
                 ),
             });
@@ -4036,6 +4073,7 @@ fn run_watched<'a>(
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         when_vars: vec![],
+        reading: None,
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         outside_far: vec![[f64::NAN; 3]; model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -4131,10 +4169,29 @@ fn run_watched<'a>(
         // values just after it (a condition true from the start)
         lp.settle_modes(t, &y, &mut d)?;
         lp.sample(t, &y, &d);
+        // each block reads what the blocks before it set, in their order,
+        // as at an event's ticks (below): a block reading another's output
+        // through a channel read the start values before (A, B, C each in
+        // + 1 in a chain started 1, 1, 1, not 1, 2, 3)
+        let d_start = d.clone();
+        let mut yz: Option<(Vec<f64>, Vec<f64>)> = None;
         for (b, blk) in blocks.iter_mut().enumerate() {
             let c = &mut clocks[b];
             let mut inputs = std::mem::take(&mut c.inputs);
-            lp.read_inputs(b, &y, &d, &mut inputs);
+            let z_for = yz.as_ref().map_or(d_start.as_slice(), |x| x.1.as_slice());
+            if c.reads_z && lp.moves_z(&d, z_for) {
+                let mut yv = yz.take().map_or_else(|| y.clone(), |x| x.0);
+                integ.consistent_z(t, &mut yv, &d)?;
+                yz = Some((yv, d.clone()));
+            }
+            let ys = match &yz {
+                Some((v, _)) if c.reads_z => v.as_slice(),
+                _ => y.as_slice(),
+            };
+            if c.reads_vars && d != d_start {
+                lp.sample(t, ys, &d);
+            }
+            lp.read_inputs(b, ys, &d, &mut inputs);
             for (k, &o) in info.blocks[b].outputs.iter().enumerate() {
                 c.outputs[k] = d[o];
             }
@@ -4175,6 +4232,9 @@ fn run_watched<'a>(
             if lp.raw[l.n_roots + k] < 0.0
                 && (g.outside != lsim_ir::table::Outside::Error || lp.read_in_use(k, t, &y, &d))
             {
+                if g.outside == lsim_ir::table::Outside::Error {
+                    lp.reading = lp.reading_at(k, t, &y, &d);
+                }
                 lp.leave_table(k, t, g)?;
             }
         }
@@ -4810,9 +4870,13 @@ fn run_watched<'a>(
                     tick = Some((b, tk));
                 }
             }
+            // a tick a few ulps after the output point (a Sample Time's
+            // 13 · 0.1 against the grid's 1.3) is at it: it runs first, at
+            // its own time (the run does not depend on its grid), and the
+            // point shows it (after_event)
             match (tg, tick) {
                 (None, None) => break,
-                (Some(g), Some((_, tk))) if g < tk => {
+                (Some(g), Some((_, tk))) if g < tk && !same_instant(g, tk) => {
                     grid_point(&mut lp, &mut rec, integ, &mut ledger, g, &mut yk, &d)?;
                 }
                 (Some(g), None) => {
@@ -5081,6 +5145,18 @@ fn run_watched<'a>(
                         for &b in &due_clocks {
                             clocks[b].stop_next = false;
                         }
+                        // (an output point there: recorded as the run without
+                        // the tick records it, its iteration variables solved
+                        // again as grid_point does; yk stays the integrator's)
+                        let mut y_at = None;
+                        if rec
+                            .next_grid_time()
+                            .is_some_and(|g| at_point(g, tk) && rec.is_output_time(g))
+                        {
+                            let mut v = yk.clone();
+                            solve_z_aside(&lp, integ, tk, &mut v, &d);
+                            y_at = Some(v);
+                        }
                         after_event(
                             &mut lp,
                             &mut rec,
@@ -5089,7 +5165,7 @@ fn run_watched<'a>(
                             before,
                             &before_vars,
                             tk,
-                            &yk,
+                            y_at.as_deref().unwrap_or(&yk),
                             &d,
                             None,
                         )?;
@@ -5798,6 +5874,25 @@ fn worst_parts_words(e: &crate::EnergyBooks) -> String {
     }
 }
 
+/// Whether an event at `t` takes the output point `g`: at it, or a few ulps
+/// after it (a tick the run loop ran before the point: its time is its own).
+fn at_point(g: f64, t: f64) -> bool {
+    g == t || (g < t && same_instant(g, t))
+}
+
+/// `y`'s iteration variables solved again at `t`, the states held: those
+/// interpolated solve their equations only to the interpolation's error (an
+/// open differential's two shares, one read from a residual, 2.5e-2 N·m
+/// apart at rtol 1e-6); kept as they are where that solve fails.
+fn solve_z_aside(lp: &Loop<'_>, integ: &mut dyn Integrator, t: f64, y: &mut [f64], d: &[f64]) {
+    if lp.model.layout().n_z > 0 {
+        let mut ys = y.to_vec();
+        if integ.consistent_z_aside(t, &mut ys, d).is_ok() {
+            y.copy_from_slice(&ys);
+        }
+    }
+}
+
 /// A grid point inside the last step, from the dense output.
 fn grid_point(
     lp: &mut Loop<'_>,
@@ -5809,6 +5904,11 @@ fn grid_point(
     d: &[f64],
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
+    // (at the points a result shows; the trace's own times, for the checks
+    // after the run, keep the interpolated values: ten times as many)
+    if rec.is_output_time(t) {
+        solve_z_aside(lp, integ, t, yk, d);
+    }
     lp.sample(t, yk, d);
     // (a trace's time alone is no point of the books)
     if rec.grid_point(t, lp.recorded())
@@ -5884,10 +5984,10 @@ fn after_event(
     if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
-    if rec.next_grid_time() == Some(t) {
+    if let Some(g) = rec.next_grid_time().filter(|&g| at_point(g, t)) {
         let left = lp.recorded_of(left);
-        rec.left_limit(t, &left, lp.recorded());
-        if rec.grid_point(t, lp.recorded())
+        rec.left_limit(g, &left, lp.recorded());
+        if rec.grid_point(g, lp.recorded())
             && let Some(lg) = ledger.as_mut()
         {
             integ.quadrature(t, &mut lg.q)?;

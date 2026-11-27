@@ -102,7 +102,8 @@ def test_scripts_run_every_solver_step_with_its_dt():
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
     last = {port: series(result, "scr", port)[-1] for port in ("calls", "dt_seen", "socs_seen")}
     assert last["calls"]["t"] == 2.0
-    assert last["calls"]["value"] == 200  # 2 s of 10 ms solver steps
+    # its ticks at 0, 0.01, … 2.0 (a point shows the tick at its own time)
+    assert last["calls"]["value"] == 201
     assert last["dt_seen"]["value"] == pytest.approx(0.01)
     # the SOC input is refreshed every solver step, not once per case step
     assert last["socs_seen"]["value"] > 150
@@ -128,12 +129,12 @@ def test_block_with_a_sample_time_runs_at_that_rate_and_holds():
     result = _script_probe(step=0.05, sample_time=0.1)
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
     calls = series(result, "scr", "calls")
-    assert calls[-1]["value"] == 20  # t = 0, 0.1, … 1.9
+    assert calls[-1]["value"] == 21  # t = 0, 0.1, … 2.0
     assert series(result, "scr", "dt_seen")[-1]["value"] == pytest.approx(0.1)
     # between samples the output holds: it changes only every other point
-    # (a run at t = 0.1 k first shows in the point recorded at 0.1 k + 0.05)
+    # (a run at t = 0.1 k shows in the point recorded at 0.1 k itself)
     changes = [p["t"] for p, q in zip(calls[1:], calls) if p["value"] != q["value"]]
-    assert changes == pytest.approx([0.1 * k + 0.05 for k in range(20)])
+    assert changes == pytest.approx([0.1 * k for k in range(1, 21)])
 
 
 def test_sample_time_data_checks():

@@ -66,7 +66,8 @@ def tool(server: McpServer, name: str, args: dict, **extra) -> dict:
 
 
 def size(obj) -> int:
-    return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+    """Bytes as the server sends them (McpServer._send: no spaces)."""
+    return len(json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 # -- protocol ------------------------------------------------------------------

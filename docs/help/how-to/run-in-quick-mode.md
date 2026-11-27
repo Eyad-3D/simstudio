@@ -72,8 +72,9 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
 
 ## When it does not run
 
-A case quick mode does not run fails with an error that starts *Not run*,
-gives a code and ends *Set the case's mode to full to run it*:
+A case quick mode does not run fails with an error that starts *Not run in
+quick mode*, says why and *Set the case's mode to full to run it*, and ends
+with a code in brackets:
 
 | Code | Why |
 |---|---|

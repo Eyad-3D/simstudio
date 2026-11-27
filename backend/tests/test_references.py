@@ -5,7 +5,7 @@ import pytest
 from helpers import dbc, el
 
 from app.schemas import Project, ReferenceValue, SummaryValue
-from app.solver import core, simulate
+from app.solver import core, new_engine, simulate
 from app.solver.references import check_references, grade_gap
 from app.storage import load_example
 
@@ -93,7 +93,10 @@ def test_energy_from_nowhere_is_flagged(monkeypatch):
             b.energy_out_wh = b.energy_in_wh = 0.0
         return real(ctx, channels)
 
+    # (on whichever engine runs: today's calls core.hand_checks, the app's
+    # engine its own import of the same function)
     monkeypatch.setattr(core, "hand_checks", no_battery_energy)
+    monkeypatch.setattr(new_engine, "hand_checks", no_battery_energy)
     proj = load_example("bev-car")
     proj.cases[0].duration = 120
     energy = next(r for r in simulate(proj, "case-city").references if r.bound == "at least")

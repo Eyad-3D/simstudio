@@ -35,9 +35,9 @@ charger's losses (86 % efficiency, as FASTSim takes it), as EPA's tests do.
 
 | Case | Consumption (battery) | At the socket | MPGe |
 |---|---|---|---|
-| *EPA city (UDDS)* | 9.52 kWh/100 km | 11.07 kWh/100 km | 189.2 |
+| *EPA city (UDDS)* | 9.52 kWh/100 km | 11.07 kWh/100 km | 189.3 |
 | *EPA highway (HWFET)* | 11.06 kWh/100 km | 12.87 kWh/100 km | 162.8 |
-| *WLTC Class 3b* | 11.79 kWh/100 km | 13.71 kWh/100 km | 152.8 |
+| *WLTC Class 3b* | 11.79 kWh/100 km | 13.70 kWh/100 km | 152.8 |
 
 EPA's tests of the real car gave 185.3 MPGe in the city and 170.1 on the
 highway (unadjusted, before the label's corrections): LightSim's figures
@@ -85,6 +85,6 @@ back afterwards, or close the copy without saving.
 4. **Turn the heating on.** On *EPA city (UDDS)*, set the *Power Consumer*
    to 2.5 kW. How far does the range fall?
 
-   **Answer:** From 542.2 to 309.9 km: at city speeds the heater draws
+   **Answer:** From 542.4 to 310.0 km: at city speeds the heater draws
    almost as much as driving does, so the consumption rises by three
-   quarters (9.52 to 16.66 kWh/100 km).
+   quarters (9.52 to 16.65 kWh/100 km).

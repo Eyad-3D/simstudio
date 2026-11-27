@@ -194,8 +194,13 @@ def test_non_finite_values_fail_the_run():
     proj.dataBusConnections.append(dbc(50, "nan", "y", "mon", "sig_in"))
     result = simulate(proj, "case")
     assert result.status == "failed"
-    assert any("Non-finite values" in m.text and "nan:y" in m.text for m in result.messages)
-    assert series(result, "nan", "y")[-1]["value"] != series(result, "nan", "y")[-1]["value"]
+    # the part by its label and the port by name, and when
+    [error] = [m.text for m in result.messages if m.level == "error"]
+    assert error.startswith("Script (Function) 'NaN maker': its output y is not a number (NaN) at "
+                            "t = 5.5"), error
+    # the trace up to the stop: every value it shows is a number
+    y = series(result, "nan", "y")
+    assert 5.0 <= y[-1]["t"] < 5.6 and all(p["value"] == p["value"] for p in y)
     # no headline number is shown unflagged (before: Consumption, energies
     # and the rest showed plain numbers); how far the run got stays valid
     s = _summary(result)

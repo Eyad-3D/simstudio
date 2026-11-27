@@ -1035,9 +1035,9 @@ def loop_warning(order: list[str], deps: dict[str, set[str]], label: dict[str, s
     late = [f"'{label[a]}' reads '{label[b]}'" for i, a in enumerate(order)
             for b in sorted(deps[a] & set(order)) if order.index(b) >= i]
     names = ", ".join(f"'{label[s]}'" for s in order)
-    return (f"Signal blocks {names} form a loop. Every solver step they run in this order, "
-            f"and LightSim inserts a one-step delay (at most 10 ms) where {'; '.join(late)}: "
-            f"that value is the one from the step before.")
+    return (f"Signal blocks {names} form a loop. Each time they run (every 10 ms, or at their "
+            f"Sample Time) they run in this order, and where {'; '.join(late)}, that value is "
+            f"the one from the time before.")
 
 
 def limited_slip(model: Model) -> list[str]:

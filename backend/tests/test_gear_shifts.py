@@ -64,12 +64,16 @@ def _books(result) -> dict:
 def test_a_shift_keeps_the_angular_momentum_and_books_the_energy_it_loses(i1, i2):
     r = simulate(_rotational(i1, i2), "case")
     w1, w2 = _speeds(r, "mot"), _speeds(r, "load")
-    # before the shift the motor's constant torque spins both up (explicit
-    # Euler is exact for it); at the shift the load's J2 ω2 + i2 J1 ω1 is kept
-    before = T * i1 * 4.0 / (J2 + i1 * i1 * J1)
-    assert w2[4.0] == pytest.approx(before, rel=1e-12)
+    # the gear changes at t_s = 4 s − 1e-7 s (the profile's step), so the
+    # 4.0 s point is just after it. Before the shift the motor's constant
+    # torque spins both up; at the shift the load's J2 ω2 + i2 J1 ω1 is kept
+    t_s = 4.0 - 1e-7
+    before = T * i1 * t_s / (J2 + i1 * i1 * J1)
+    assert w2[3.99] == pytest.approx(before * 3.99 / t_s, rel=1e-9)
     after = (J2 + i1 * i2 * J1) * before / (J2 + i2 * i2 * J1)
-    assert w2[8.0] == pytest.approx(after + T * i2 * 4.0 / (J2 + i2 * i2 * J1), rel=1e-12)
+    rate = T * i2 / (J2 + i2 * i2 * J1)
+    assert w2[4.0] == pytest.approx(after + rate * (4.0 - t_s), rel=1e-9)
+    assert w2[8.0] == pytest.approx(after + rate * (8.0 - t_s), rel=1e-9)
     assert w1[8.0] == pytest.approx(i2 * w2[8.0], rel=1e-12)
     # kinetic energy is lost, never made, up- and downshifting, and the
     # gearbox books it as its loss
@@ -77,11 +81,11 @@ def test_a_shift_keeps_the_angular_momentum_and_books_the_energy_it_loses(i1, i2
     assert lost > 0
     books = _books(r)
     gb = books["Gearbox"]
-    assert gb.terms["gear shifts"] * KWH == pytest.approx(lost, rel=1e-9)
-    assert gb.losses * KWH == pytest.approx(lost, rel=1e-9)
+    assert gb.terms["gear shifts"] * KWH == pytest.approx(lost, rel=1e-6)
+    assert gb.losses * KWH == pytest.approx(lost, rel=1e-6)
     # the rotating parts' books hold what the speeds hold
     held = 0.5 * J1 * w1[8.0] ** 2 + 0.5 * J2 * w2[8.0] ** 2
-    assert books["Rotating parts"].stored * KWH == pytest.approx(held, rel=1e-12)
+    assert books["Rotating parts"].stored * KWH == pytest.approx(held, rel=1e-9)
 
 
 def _geared_vehicle(locked_clutch_engine: bool = False):
@@ -118,10 +122,13 @@ def _geared_vehicle(locked_clutch_engine: bool = False):
 
 
 def test_through_gripping_tyres_the_vehicle_takes_part_in_the_shift():
-    """The tyres grip, so the impulse reaches the Vehicle: its speed steps
-    up a little at the upshift (the motor's angular momentum goes into the
-    car), the wheels keep rolling with it instead of spinning up, and the
-    books close on the kinetic energy the speeds hold."""
+    """The tyres grip, so the motor's momentum reaches the Vehicle. A tyre's
+    force is bounded, so it passes no impulse: at the upshift the wheels'
+    speed jumps with the driveline's, their slip takes up the difference
+    (0.43 here) and hands the momentum to the car as it relaxes, back to
+    its slip under the new gear's torque within about 50 ms (the older
+    engine's tyres passed it at once). The books close on the kinetic energy
+    the speeds hold."""
     r = simulate(_geared_vehicle(), "case")
     v = {round(p["t"], 6): p["value"] / 3.6 for p in series(r, "veh", "sig_speed")}
     w = {round(p["t"], 6): p["value"] / RPM for p in series(r, "wl", "sig_speed")}
@@ -130,16 +137,20 @@ def test_through_gripping_tyres_the_vehicle_takes_part_in_the_shift():
     # no wheel spin: the tyres' slip (about 3.5 % under the full first-gear
     # torque) carries on through the shift; before, the wheels kept their
     # speed and the motor's momentum was lost
-    slip = {t: w[t] * radius / v[t] - 1.0 for t in (0.99, 1.0, 1.01, 1.02)}
+    slip = {t: w[t] * radius / v[t] - 1.0 for t in (0.98, 0.99, 1.05, 1.1, 1.5, 2.0)}
+    # no lasting wheel spin: the slip of first gear before, and back under
+    # the second gear's (smaller) torque once relaxed
     assert all(0.0 < s < 0.05 for s in slip.values()), slip
-    assert slip[1.01] == pytest.approx(slip[1.0], abs=0.01), slip
-    assert v[1.01] - v[1.0] > 2.0 * (v[1.0] - v[0.99])  # the motor's momentum went into the car
+    # the motor's momentum went into the car: from 0.99 s to 1.05 s it gained
+    # well over what the first gear's own acceleration gives in that time
+    assert v[1.05] - v[0.99] > 1.3 * 6.0 * (v[0.99] - v[0.98])
     # the motor's speed meets the new ratio at once
+    assert mot[1.0] / w[1.0] == pytest.approx(2.4 * 3.4, rel=1e-9)
     assert mot[1.01] / w[1.01] == pytest.approx(2.4 * 3.4, rel=1e-9)
     books = _books(r)
     assert books["Gearbox"].terms["gear shifts"] > 0
-    residual = next(s.value for s in r.summary if s.label == "Energy balance residual")
-    assert abs(residual) < 0.5  # % (the solver step's own interface error)
+    for f in r.partEnergy:  # every part's books close
+        assert f.energyIn - f.energyOut - f.losses - f.stored == pytest.approx(0.0, abs=1e-9)
 
 
 def test_an_engine_behind_a_closed_clutch_keeps_its_speed_and_the_clutch_slips():
@@ -153,10 +164,11 @@ def test_an_engine_behind_a_closed_clutch_keeps_its_speed_and_the_clutch_slips()
     eng, mot = _speeds(r, "eng"), _speeds(r, "mot")
     slip = {round(p["t"], 6): p["value"] / RPM for p in series(r, "cl", "sig_slip_speed")}
     torque = {round(p["t"], 6): p["value"] for p in series(r, "cl", "sig_torque")}
-    assert slip[0.99] == 0.0  # stuck before the shift
+    # stuck: no slip but the round-off the integrator holds it to
+    assert abs(slip[0.99]) < 1e-9  # stuck before the shift
     assert eng[1.01] > mot[1.01] + 30.0  # the engine kept its speed, the input dropped
     assert torque[1.01] == pytest.approx(300.0)  # slipping at its whole torque
-    stuck = next(t for t in sorted(slip) if t > 1.0 and slip[t] == 0.0)
-    assert stuck < 1.2 and all(slip[t] == 0.0 for t in slip if t >= stuck)  # stuck, for good
+    stuck = next(t for t in sorted(slip) if t > 1.0 and abs(slip[t]) < 1e-9)
+    assert stuck < 1.2 and all(abs(slip[t]) < 1e-9 for t in slip if t >= stuck)  # for good
     books = _books(r)
     assert books["Clutch"].losses > 0 and books["Gearbox"].terms["gear shifts"] > 0

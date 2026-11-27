@@ -36,6 +36,16 @@ it("sets a cycle case's run mode to quick and back (step 2's quick mode)", async
   expect(useProjectStore.getState().project!.cases[0].mode).toBeUndefined();
 });
 
+it("quotes a refused quick run's words as the run gives them: the reason, then the code", async () => {
+  act(() => useProjectStore.setState({ project: project(), activeCaseId: "c", readOnly: null }));
+  const host = document.body.appendChild(document.createElement("div"));
+  await act(async () => createRoot(host).render(<CasePanel />));
+  const balance = [...host.querySelectorAll("label")].find((l) => l.textContent?.includes("Charge balance"));
+  const tip = balance?.getAttribute("title") ?? "";
+  expect(tip).toContain("“Not run in quick mode: … [QUICK-BALANCE]”");
+  expect(tip).not.toContain("Not run [");
+});
+
 it("offers no run mode for a case that drives no cycle", async () => {
   act(() => useProjectStore.setState({ project: project("acceleration"), activeCaseId: "c", readOnly: null }));
   const host = document.body.appendChild(document.createElement("div"));

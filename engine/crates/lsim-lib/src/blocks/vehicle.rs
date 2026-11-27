@@ -807,6 +807,11 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         "the vehicle's speed (recuperation fades out below 3 m/s)",
     ));
     ports.push(input("regen_cap", "N.m", "the motors' generator torque at the wheels"));
+    ports.push(input(
+        "regen_cut",
+        "N.m",
+        "of the motors' generator torque at the wheels, what their supplies cut back now",
+    ));
     if cfg.inverse {
         ports.push(input(
             "sig_cmd_in",
@@ -957,10 +962,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
                 "the friction brakes do the rest",
             )
         } else {
+            // (and what the motors' supplies cut of their share: a full or
+            // charge-limited battery, a one-way DC-DC, a fuel cell; today's
+            // regen_share; exactly 0 where nothing is cut)
             eq(
                 n("t_fr"),
-                min(n("fr_cap"), max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm"))),
-                "the friction brakes do the rest",
+                min(
+                    n("fr_cap"),
+                    max(
+                        n("t_req") - n("t_rg") + n("share") * n("regen_cut"),
+                        c(0.0) * n("unit_Nm"),
+                    ),
+                ),
+                "the friction brakes do the rest, and what the motors' supplies cut",
             )
         },
         eq(

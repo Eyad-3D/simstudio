@@ -157,12 +157,14 @@ def test_braking_distance_is_v0_squared_over_2a():
 
 def test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h():
     """A 25 % grade (tan and sin differ by 3 %): the body stops after rising
-    h = v0² / 2g, i.e. after v0² / (2 g sin(atan 0.25)) along the road."""
+    h = v0² / 2g, i.e. after v0² / (2 g sin(atan 0.25)) along the road. With
+    no wheels nothing holds it there, and it rolls back: the highest point
+    it reached is the one that counts."""
     grade, v0 = 25.0, 72 / 3.6
     proj = _lone_body(0.01, duration=12.0, cd=0.0, initial_speed_kmh=72)
     proj.systems[0].elements.append(el("g", "signal.constant", "Grade", value=grade))
     proj.dataBusConnections.append(dbc(1, "g", "sig_out", "veh", "sig_grade_in"))
-    x = series(_run(proj), "veh", "sig_distance")[-1]["value"]
+    x = max(p["value"] for p in series(_run(proj), "veh", "sig_distance"))
     assert x * math.sin(math.atan(grade / 100)) == pytest.approx(v0**2 / (2 * GRAVITY), rel=0.005)
 
 
@@ -212,12 +214,14 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
         assert s * RPM == pytest.approx(m["value"] - ld["value"], abs=1e-3), m["t"]
     in_clutch = sum(torque[k] * (slip[k - 1] + slip[k]) / 2 for k in range(1, len(slip))) * 0.01
     assert in_clutch == pytest.approx(loss, rel=0.001)
-    stuck = next(k for k, s in enumerate(slip) if k > 150 and s == 0.0)
-    assert 0.0 < torque[stuck] < 1.0  # the step it sticks in: what ends the slip
+    # stuck: no slip but the round-off the integrator holds it to (1e-9
+    # rad/s; the older engine's fixed steps gave exactly 0)
+    stuck = next(k for k, s in enumerate(slip) if k > 150 and abs(s) < 1e-9)
+    assert 0.0 <= torque[stuck] <= 1.0  # the point it sticks at: within its capacity
     assert all(s > 0 for s in slip[151:stuck])  # it slipped one way only, at its capacity
-    assert all(t_c == pytest.approx(1.0, abs=1e-12) for t_c in torque[152:stuck])
-    assert all(s == 0.0 for s in slip[stuck:])
-    assert all(t_c == pytest.approx(0.0, abs=1e-9) for t_c in torque[stuck + 1:])
+    assert all(t_c == pytest.approx(1.0, abs=1e-9) for t_c in torque[152:stuck])
+    assert all(abs(s) < 1e-9 for s in slip[stuck:])
+    assert all(t_c == pytest.approx(0.0, abs=1e-6) for t_c in torque[stuck + 1:])
 
 
 # ---- battery -------------------------------------------------------------------
@@ -246,8 +250,7 @@ def _rc_error(step):
     fraction of I R1 (flat OCV, R0 ≈ 0: v_RC = OCV − terminal voltage)."""
     result = _run(_battery_at_constant_current(
         I_STEP, {"0": E0, "100": E0}, step, 20.0, internal_resistance_ohm=1e-6,
-        rc_resistance_ohm=R1, rc_time_constant_s=TAU, capacity_kWh=60, initial_soc_pct=90,
-        min_soc_pct=0))
+        rc_resistance_ohm=R1, rc_time_constant_s=TAU, capacity_kWh=60, initial_soc_pct=90))
     return max(abs(E0 - p["value"] - I_STEP * R1 * (1 - math.exp(-p["t"] / TAU)))
                for p in series(result, "batt", "sig_voltage")) / (I_STEP * R1)
 

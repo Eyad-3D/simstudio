@@ -72,10 +72,13 @@ motors' full generator torque) and *Brake Command* = `T_fr / T_fr,max`. At
 full brake the friction brakes give their whole torque and the motors w
 times what they have.
 
-The split does not see the battery's charge limit. Where the battery or its
-bus takes less power, the motors brake less, and the friction brakes do not
-make up the difference. With no E-Motor, all braking is friction; with no
-Brake, all braking is recuperation.
+Where the motors' supply takes less than they would feed back (a full or
+charge-limited battery, a fuel cell, a DC-DC that passes power one way),
+the motors recuperate what it takes and the friction brakes take the rest,
+so the car brakes as asked. A full battery is said in the messages. With
+no E-Motor, all braking is friction; with no Brake, all braking is
+recuperation, and where the supply takes less the motors brake less (the
+run says the charging was held back).
 
 ### Other case kinds
 

@@ -37,6 +37,27 @@ const ID: &str = "motor.emotor";
 const RPM: f64 = std::f64::consts::PI / 30.0;
 /// the share of the maximum speed over which the drive torque falls to 0
 const SPEED_LIMIT_BAND: f64 = 0.02;
+/// the command above which (either way) the inverter runs near standstill
+/// (below `w_slow`): a car standing at its target from the start holds a
+/// Driver's command of round-off (its integral picks up about 1e-11 in the
+/// start's first microseconds: 3.8e-12), which ran the inverter at its
+/// standstill loss for as long as the car stood there (the UDDS's first 20 s,
+/// the WLTC's 11 s), where at every later
+/// stop the command is exactly 0 and the inverter off. Below this, a command
+/// counts as none. Moving, a command passes it in an instant and the
+/// inverter is not held off for it: the bound keeps every zero crossing of
+/// a moving car's command as it was (at any speed it added events to every
+/// battery cycle: 17 -> 52 on the aero BEV's HWFET, 7 with the bound).
+pub const CMD_ON: f64 = 1e-9;
+/// how far below its maximum speed an E-Motor driven above it runs again:
+/// above the maximum its inverter is off and its drag brakes the rotor; on
+/// again at the maximum itself, the taper's torque there is 0, so switching
+/// on takes away the drag, and a light driveline (the rotor and wheels, held
+/// to the car by their tyres' slip) was lifted straight back over it: the
+/// inverter switched without end (an event storm). Back on this far below,
+/// the taper gives 5 % of the full-load torque, and the motor settles inside
+/// its band.
+pub const SPEED_BACK_ON: f64 = 1e-3;
 
 /// The motor's configuration: its maps (SI, scaled) and whether a supply
 /// window limits it.
@@ -67,6 +88,12 @@ pub struct MotorConfig {
     /// the rest is lost (as the friction brakes take it in a forward run,
     /// where the driver brakes harder)
     pub inverse: bool,
+    /// a windowed motor a Driver blends its recuperation for with friction
+    /// brakes, which take what its supply cuts: it says the share of its
+    /// command its supply allows (`k_supply`), cuts its recuperation 1e-5
+    /// inside its window, and its cut is neither time held back nor
+    /// recuperation lost (its `blended` parameter, 1)
+    pub blended: bool,
 }
 
 fn scale_pct(p: &serde_json::Map<String, serde_json::Value>, key: &str) -> f64 {
@@ -110,6 +137,7 @@ impl MotorConfig {
             scales: [kt, kn, kv],
             windowed,
             inverse: false,
+            blended: false,
         })
     }
 }
@@ -181,6 +209,15 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         });
     }
     params.push(p("w0", "rad/s", 0.0, "the rotor's speed at the start"));
+    if cfg.windowed && !cfg.inverse && cfg.blended {
+        params.push(p(
+            "blended",
+            "1",
+            1.0,
+            "1 where a Driver blends its recuperation with friction brakes, which take what \
+             its supply cuts (that is then not recuperation lost)",
+        ));
+    }
     params.push(p("w_slow", "rad/s", 0.1, "below this speed the drag fades with the speed"));
     params.push(pe(
         "w_max",
@@ -211,6 +248,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "W",
             "the most electrical power (negative) its supply takes back now",
         ));
+        if !cfg.inverse && cfg.blended {
+            ports.push(output(
+                "k_supply",
+                "1",
+                "the share of its command its supply allows (1: all of it)",
+            ));
+        }
     }
     for p in ["sig_speed", "sig_torque", "sig_mech_power", "sig_elec_power", "sig_losses"] {
         ports.push(out(id, p));
@@ -266,7 +310,28 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         n("t_fl") * max(c(0.0), wmax.clone() - n("wa")) / (band * wmax.clone()),
         n("t_fl"),
     );
+    // above its maximum speed: from where it passes it upwards (or starts
+    // above it) until it is SPEED_BACK_ON below it
+    vars.push(lsim_ir::VarDecl {
+        start: Some(ite(gt(abs(n("w0")), wmax.clone() * c(1.0 + 1e-9)), c(1.0), c(0.0))),
+        ..lsim_ir::component::build::discrete(
+            "over",
+            "1",
+            0.0,
+            "1 from above its maximum speed until it is back 0.1 % below it",
+        )
+    });
     let mut eqs = vec![
+        when(
+            gt(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
+            &[("over", c(1.0))],
+            "above its maximum speed: the inverter is off",
+        ),
+        when(
+            lt(n("wa"), wmax.clone() * c(1.0 - SPEED_BACK_ON)),
+            &[("over", c(0.0))],
+            "back 0.1 % below its maximum speed: it may run again",
+        ),
         eq(n("v"), n("pos.v") - n("neg.v"), "its supply voltage"),
         eq(c(0.0), n("pos.i") + n("neg.i"), "the current into pos leaves at neg"),
         eq(n("i"), n("pos.i"), "the current it takes"),
@@ -297,14 +362,21 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             n("alive"),
             ite(
                 and(
-                    // a command of exactly 0 is an instant (no event); in
+                    // a command of 0 is an instant (no event), and near
+                    // standstill one within CMD_ON of 0 is round-off; in
                     // fast mode the inverter runs at 0 too
                     if cfg.inverse {
                         gt(n("v"), c(1.0) * n("unit_V"))
                     } else {
-                        and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0))))
+                        and(
+                            gt(n("v"), c(1.0) * n("unit_V")),
+                            noev(gt(
+                                abs(n("dem")),
+                                ite(lt(n("wa"), n("w_slow")), c(CMD_ON), c(0.0)),
+                            )),
+                        )
                     },
-                    le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
+                    lt(n("over"), c(0.5)),
                 ),
                 c(1.0),
                 c(0.0),
@@ -383,6 +455,15 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         // short: its window does not cover even its spin losses
         let short = || noev(and(gt(n("p_req"), n("p_hi")), lt(n("p_hi"), l0.clone())));
         let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(noev(abs(n("frac") * n("t_cmd"))));
+        // what it feeds back is cut to: its window; a blended motor's, by
+        // 1e-5 of it inside (more than the solver's tolerance on the share),
+        // so that its supply takes no more than its window allows (exactly
+        // its window where it is not blended: blended is 0)
+        let lo_edge = if cfg.blended {
+            n("p_lo") + n("blended") * c(1e-5) * noev(max(abs(n("p_lo")), c(1.0) * n("unit_W")))
+        } else {
+            n("p_lo")
+        };
         // off, the share is not used and is held at 1 (its equation need
         // have no root then). Short, it blends the command's torque into the
         // torque that feeds the spin losses from the shaft: 1 where the
@@ -400,8 +481,8 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
                     and(gt(n("on"), c(0.5)), noev(gt(n("p_req"), n("p_hi")))),
                     p_of.clone() - n("p_hi"),
                     ite(
-                        and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), n("p_lo")))),
-                        p_of - n("p_lo"),
+                        and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), lo_edge.clone()))),
+                        p_of - lo_edge,
                         (n("frac") - c(1.0)) * n("unit_W"),
                     ),
                 ),
@@ -431,28 +512,29 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
              them); unpowered, its drag against the motion",
         ));
         short_of = Some(short());
+        // (a blended motor's recuperation its supply cuts the friction
+        // brakes take: neither time held back nor recuperation lost)
+        let (below, lost) = if cfg.blended {
+            eqs.push(eq(n("k_supply"), n("frac"), "the share of its command its supply allows"));
+            let own = || noev(lt(n("blended"), c(0.5)));
+            (
+                noev(or(gt(n("p_req"), n("p_hi")), and(own(), lt(n("p_req"), n("p_lo"))))),
+                and(own(), noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W"))))),
+            )
+        } else {
+            (
+                noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
+                noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
+            )
+        };
         eqs.push(eq(
             der("t_limited"),
-            ite(
-                and(
-                    gt(n("alive"), c(0.5)),
-                    noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
-                ),
-                c(1.0),
-                c(0.0),
-            ),
+            ite(and(gt(n("alive"), c(0.5)), below), c(1.0), c(0.0)),
             "time held below its command",
         ));
         eqs.push(eq(
             der("e_regen_lost"),
-            ite(
-                and(
-                    gt(n("alive"), c(0.5)),
-                    noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
-                ),
-                n("p_elec") - n("p_req"),
-                c(0.0) * n("unit_W"),
-            ),
+            ite(and(gt(n("alive"), c(0.5)), lost), n("p_elec") - n("p_req"), c(0.0) * n("unit_W")),
             "recuperation the supply could not take",
         ));
     } else {
@@ -521,7 +603,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eq(
             n("t_regen"),
             ite(
-                and(gt(n("v"), c(1.0) * n("unit_V")), le(n("wa"), wmax * c(1.0 + 1e-9))),
+                and(gt(n("v"), c(1.0) * n("unit_V")), lt(n("over"), c(0.5))),
                 n("t_fl") * n("q4_torque_scale_pct"),
                 c(0.0) * n("unit_N_m"),
             ),
@@ -535,7 +617,10 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         name: variant(
             "Blocks.EMotor",
             !cfg.windowed && !cfg.inverse,
-            [cfg.windowed as u8 as f64].into_iter().chain(cfg.inverse.then_some(1.0)),
+            [cfg.windowed as u8 as f64]
+                .into_iter()
+                .chain(cfg.inverse.then_some(1.0))
+                .chain(cfg.blended.then_some(2.0)),
         ),
         doc: doc(id),
         ports,

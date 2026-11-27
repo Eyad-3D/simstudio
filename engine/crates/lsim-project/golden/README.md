@@ -1002,3 +1002,232 @@ the order by which the engine's locked differential, the same physics on
 this launch in other equations, differs from the open one (3.8e-6): the
 integrator's tolerance over another set of equations. Every other case is
 the same to the bit (the record's other cases kept as they were).
+
+## The Engine's fuel cut and the brakes taking the supply's cut (24 November 2026)
+
+Recorded again from the golden run on 96ebe9c9, with two causes, kept
+apart here.
+
+**The Engine cuts its fuel when coasting in gear (7734f86a).** The
+Driver's command lands on exactly 0 when the pedal lifts, so the Engine's
+mode "fired with throttle" (throttle > 0) only touched its threshold and
+never turned off: it fired at zero torque off its map. It now fires above
+a throttle of 1e-9, which the lifting command crosses. In the record this
+moves only the four hybrid cases' event counts, the threshold's crossings
+where nothing else changes (HWFET 76,965 → 77,091; Mixed and Mixed-live
+56,212 → 56,222; UDDS 118,138 → 118,540): on 7734f86a every figure and
+channel compared to the bit.
+
+**The friction brakes take the recuperation a motor's supply cuts
+(96ebe9c9).** A windowed E-Motor now tells the Driver the share of its
+command its supply allows, and the friction brakes take what the supply
+cut of the Driver's recuperation, as the older engine's Driver did. No
+example's supply cuts it (the share stays within 2.5e-13 of 1), but the
+brakes now read the motor's share, which changes the structure of the
+solver's Jacobian, so every battery case takes another step sequence:
+figures move by at most 1.2e-6 of their value (rtol is 1e-6), the books
+stay inside 1.5e-9 (the city case's 1.3e-9 → 9.3e-10), and no event
+count moves but the hybrid UDDS's (118,540 → 118,525). The hybrid HWFET's
+and Mixed's two E-Motor channels move by one unit in the last place
+(their RMS difference by 1.7e-13 to 1.0e-10 of itself); their states,
+steps and events are the same to the bit. The FS 75 m (no Driver) is
+kept to the byte.
+
+Per case, against the record before (6cf71ed6): the largest relative move
+of a figure, and of a channel's RMS difference to today's 1 ms run; the
+steps, the events and the books' closure, before → after.
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 3.0e-08 (HV Battery Pack — internal losses) | 1.0e-06 | 50611 → 50460 | 17 → 17 | 4.5e-11 → 1.1e-11 |
+| aero-bev/case-udds | 2.9e-07 (Phase Bag 1 — consumption) | 9.2e-07 | 112111 → 112210 | 257 → 257 | 1.5e-10 → 7.8e-11 |
+| aero-bev/case-wltc | 2.5e-07 (HV Battery Pack — energy recuperated) | 4.0e-07 | 139393 → 139224 | 122 → 122 | 1.6e-10 → 1.6e-10 |
+| bev-car/case-city | 1.2e-06 (HV Battery Pack — energy recuperated) | 5.5e-05 | 2751 → 2655 | 17 → 17 | 1.3e-09 → 9.3e-10 |
+| bev-car/case-city-live | 1.2e-06 (HV Battery Pack — energy recuperated) | 5.5e-05 | 2751 → 2655 | 17 → 17 | 1.3e-09 → 9.3e-10 |
+| bev-car/case-wltc | 3.2e-07 (HV Battery Pack — energy recuperated) | 1.3e-06 | 135991 → 135927 | 122 → 122 | 6.3e-10 → 1.3e-10 |
+| bev-car/case-wltc-hvac | 4.0e-07 (HV Battery Pack — energy recuperated) | 2.6e-07 | 136825 → 136123 | 122 → 122 | 4.9e-10 → 9.4e-11 |
+| bev-car/case-wltc-summer | 5.5e-07 (HV Battery Pack — energy recuperated) | 4.5e-07 | 135776 → 136445 | 122 → 122 | 1.6e-10 → 5.2e-10 |
+| bev-car/case-wltc-winter | 3.9e-07 (HV Battery Pack — energy recuperated) | 5.0e-07 | 136116 → 136667 | 122 → 122 | 6.0e-10 → 1.9e-10 |
+| hybrid-car/case-hwfet | 0 (every figure to the bit) | 1.0e-10 | 903552 → 903552 | 76965 → 77091 | 9.0e-12 → 9.0e-12 |
+| hybrid-car/case-mixed | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 4.8e-07 (Phase Bag 2 — fuel consumption) | 1.1e-06 | 1648592 → 1648790 | 118138 → 118525 | 3.1e-11 → 2.8e-11 |
+
+## The battery shut at its SOC limits (24 November 2026)
+
+A battery's window closes as it nears its minimum SOC (or full) over the
+last 10 ms of charge, exponentially: it took the SOC ever closer to the
+limit, below the solver's own tolerance on it, where the window's kink
+at the limit was crossed back and forth by the solver's noise and the
+integrator stopped (a 1C discharge to a minimum SOC of 1 %, at 3564.1 s).
+Now an event shuts it within 1e-9 of the limit (1e-7 %), until the
+current turns and moves the SOC twice that away.
+
+No example's battery reaches either limit; the FS car's starts full, so
+its run passes the event that opens the window again as it leaves 100 %:
+its events 12 → 13, every value, step and its books (7.8e-10) the same to
+the bit. Every other case is kept to the byte.
+
+## A standing motor's command of round-off (24 November 2026)
+
+What was booked: a car standing at its target from the start of a cycle
+kept its E-Motor's inverter on for as long as it stood there (the UDDS
+stands for its first 20 s, the WLTC for 11 s), drawing the
+loss map's standstill loss (about 0.1 kW on the examples' maps), where at
+every later stop the inverter was off and drew nothing. Why it was noise:
+in the start's first microseconds the Vehicle slides and sticks again,
+the Driver's integral picks up about 1e-11 from it, and the command it
+then holds is a few 1e-12 (3.8e-12), not exactly 0; the inverter ran for
+any command that is not exactly 0. Now, near standstill (below w_slow,
+0.1 rad/s), a command within CMD_ON = 1e-9 of 0 counts as none
+(`lsim-lib/src/blocks/motor.rs`), as the Engine's THR_ON does for its
+throttle: the start books no standstill loss, as a stop does not. Moving,
+a command passes 1e-9 in an instant and nothing changes (at any speed the
+same rule added events to every cycle, 17 → 52 on the aero BEV's HWFET).
+
+The figures that move are that loss leaving (about 0.1 kW over the
+cycle's first stand), so the cycles that cover the least distance per
+second lose the largest share; accepted by the lead by name: the cycles' first phase or bag by up to 8.4e-4 (the WLTC's Low
+phase, the UDDS's Bag 1), whole cycles by up to 3.75e-4 (the aero BEV's
+UDDS consumption and range; 8.6e-5 on the WLTCs), the inverter's
+switching on as the cycle moves off added to the events (+7 a battery
+cycle; the hybrid's HWFET 77,091 → 77,060 and UDDS 118,525 → 118,505, its
+steps moved), books inside 1.5e-9. The City cycle moves its car from
+t = 0: its inverter now switches on as the command passes 1e-9 rather
+than as it leaves 0, nanoseconds later, which moves its steps (figures by
+5.7e-7 at most, books 1.5e-9). The hybrid's Mixed cases and the FS 75 m
+are kept to the byte.
+
+Per case, against the record before (84e2695f), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 2.3e-05 (Range at this consumption) | 8.6e-06 | 50460 → 50589 | 17 → 24 | 1.1e-11 → 4.9e-11 |
+| aero-bev/case-udds | 7.2e-04 (Phase Bag 1 — consumption) | 9.2e-05 | 112210 → 112024 | 257 → 264 | 7.8e-11 → 1.5e-10 |
+| aero-bev/case-wltc | 8.4e-04 (Phase Low — consumption) | 2.1e-05 | 139224 → 139860 | 122 → 129 | 1.6e-10 → 3.2e-10 |
+| bev-car/case-city | 5.7e-07 (HV Battery Pack — internal losses) | 2.1e-05 | 2655 → 2693 | 17 → 17 | 9.3e-10 → 1.5e-09 |
+| bev-car/case-city-live | 5.7e-07 (HV Battery Pack — internal losses) | 2.1e-05 | 2655 → 2693 | 17 → 17 | 9.3e-10 → 1.5e-09 |
+| bev-car/case-wltc | 5.6e-04 (Phase Low — consumption) | 1.0e-05 | 135927 → 136524 | 122 → 129 | 1.3e-10 → 2.0e-10 |
+| bev-car/case-wltc-hvac | 2.6e-04 (Phase Low — consumption) | 1.0e-05 | 136123 → 136118 | 122 → 129 | 9.4e-11 → 5.0e-10 |
+| bev-car/case-wltc-summer | 3.3e-04 (Phase Low — consumption) | 1.0e-05 | 136445 → 136624 | 122 → 129 | 5.2e-10 → 6.6e-10 |
+| bev-car/case-wltc-winter | 1.8e-04 (Phase Low — consumption) | 1.0e-05 | 136667 → 136103 | 122 → 129 | 1.9e-10 → 3.7e-10 |
+| hybrid-car/case-hwfet | 1.5e-05 (HV Battery — energy delivered) | 7.0e-06 | 903552 → 903483 | 77091 → 77060 | 9.0e-12 → 9.7e-12 |
+| hybrid-car/case-udds | 2.0e-04 (Phase Bag 1 — fuel consumption) | 8.7e-05 | 1648790 → 1649302 | 118525 → 118505 | 2.8e-11 → 3.0e-11 |
+
+## Output points solve the iteration variables again (26 November 2026)
+
+What was recorded: at an output point the run loop interpolated the whole
+vector of unknowns from the step's dense output, the iteration variables
+among them, and evaluated the channels from that. An iteration variable
+interpolated solves its equations only to the interpolation's error, and
+since 19 November a dummy derivative is left out of IDA's error test, so
+its interpolant can be poor: an open differential, whose side b torque is
+computed from the wheel's inertia and whose share equation is the residual
+that pins `der(fd.w_out)`, showed its two shares 2.5e-2 N·m apart on
+288 N·m at rtol 1e-6 (`test_diff_open_torque_split_is_equal`). Now
+`grid_point` (`lsim-solve/src/run.rs`) solves the iteration variables again
+with the interpolated states held (`consistent_z_aside`, the Newton solve
+the run loop has), and keeps them as interpolated where that solve fails.
+The two shares then agree to 3e-13, and a 1C discharge's current at the
+points is the battery's at those points (`test_a_1c_discharge_empties_the_battery_in_one_hour`).
+Steps, events and the books are untouched: only the values recorded at
+the points move.
+
+Per case, against the record before (89da741a's), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 0.0e+00 () | 1.4e-08 | 50589 → 50589 | 24 → 24 | 4.9e-11 → 4.9e-11 |
+| aero-bev/case-udds | 0.0e+00 () | 2.4e-08 | 112024 → 112024 | 264 → 264 | 1.5e-10 → 1.5e-10 |
+| aero-bev/case-wltc | 0.0e+00 () | 4.4e-09 | 139860 → 139860 | 129 → 129 | 3.2e-10 → 3.2e-10 |
+| bev-car/case-city | 0.0e+00 () | 1.6e-08 | 2693 → 2693 | 17 → 17 | 1.5e-09 → 1.5e-09 |
+| bev-car/case-city-live | 0.0e+00 () | 1.6e-08 | 2693 → 2693 | 17 → 17 | 1.5e-09 → 1.5e-09 |
+| bev-car/case-wltc | 0.0e+00 () | 6.9e-09 | 136524 → 136524 | 129 → 129 | 2.0e-10 → 2.0e-10 |
+| bev-car/case-wltc-hvac | 0.0e+00 () | 1.7e-08 | 136118 → 136118 | 129 → 129 | 5.0e-10 → 5.0e-10 |
+| bev-car/case-wltc-summer | 0.0e+00 () | 7.0e-09 | 136624 → 136624 | 129 → 129 | 6.6e-10 → 6.6e-10 |
+| bev-car/case-wltc-winter | 0.0e+00 () | 3.0e-09 | 136103 → 136103 | 129 → 129 | 3.7e-10 → 3.7e-10 |
+| fs-electric/case-accel-75m | 9.6e-15 (Accumulator — peak terminal power, averaged) | 5.7e-07 | 769 → 769 | 13 → 13 | 7.8e-10 → 7.8e-10 |
+| hybrid-car/case-hwfet | 0.0e+00 () | 2.6e-10 | 903483 → 903483 | 77060 → 77060 | 9.7e-12 → 9.7e-12 |
+| hybrid-car/case-mixed | 0.0e+00 () | 3.5e-12 | 296432 → 296432 | 56222 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 0.0e+00 () | 3.5e-12 | 296432 → 296432 | 56222 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 0.0e+00 () | 2.7e-10 | 1649302 → 1649302 | 118505 → 118505 | 3.0e-11 → 3.0e-11 |
+
+Books inside 1.5e-9 (worst 1.467e-9, bev-car City, as before). The
+solve costs a little time at each output point; on four slices, best of
+7 alternating rounds against the module before it (CPUs 8-15): bev-car
+City 120 s 0.110 → 0.118 s (+6.6 %), hybrid Mixed 120 s 2.831 → 2.794 s
+(−1.3 %), aero-bev UDDS 0.263 → 0.273 s (+3.9 %), bev-car WLTC 0.289 →
+0.302 s (+4.6 %).
+
+## A tick a few ulps from an output point is at it (26 November 2026)
+
+What was recorded: inside a step, the run loop put the output points and
+the blocks' ticks in time order by exact comparison. A clock's ticks are
+offset + k·period, so a 0.1 s Sample Time ticks at 13 · 0.1 =
+1.3000000000000003, after the grid's 1.3: that point was recorded before
+the tick and showed the value from before it, while the points at 1.2 and
+1.4 showed the tick at their time (a Script's output first showed at
+1.35, 1.55 and 1.85 on a 0.05 s grid, everywhere else at its tick's own
+point). Now a tick within 16 ulps of the output point (`same_instant`,
+the run loop's one-instant rule) runs at the point's time, and the point
+shows it, as at every other tick (`lsim-solve/src/run.rs`; DESIGN's
+"One instant"). Only the hybrid has a sampled block (its Hybrid Control
+Unit, every 10 ms), whose ticks land a few ulps from many of its 1 s
+points: there the point now shows that tick's command, and the run
+restarts a few ulps earlier at those ticks, which moves its steps and
+events. The battery-electric and FS cases are kept to the byte.
+
+Per case, against the record before (89c86bf0), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| hybrid-car/case-hwfet | 1.5e-07 (HV Battery — internal losses) | 2.3e-07 | 903483 → 904041 | 77060 → 77126 | 9.7e-12 → 1.6e-13 |
+| hybrid-car/case-mixed | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296432 → 296701 | 56222 → 56254 | 1.9e-12 → 3.4e-12 |
+| hybrid-car/case-mixed-live | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296432 → 296701 | 56222 → 56254 | 1.9e-12 → 3.4e-12 |
+| hybrid-car/case-udds | 3.1e-07 (Phase Bag 2 — fuel consumption) | 5.0e-07 | 1649302 → 1648890 | 118505 → 118499 | 3.0e-11 → 2.9e-11 |
+
+Books inside 1.5e-9 (the hybrid 3.4e-12 at most; worst of all 1.467e-9,
+bev-car City, as before). No time moves: on four slices, best of 7
+alternating rounds against the module before it (CPUs 8-15), ratios
+0.998 (bev-car City), 0.979 (hybrid Mixed), 1.003 (aero-bev UDDS) and
+0.985 (bev-car WLTC).
+
+## A tick a few ulps after an output point runs at its own time (27 November 2026)
+
+What 46f78707 recorded (the entry above): to make the point at 1.3 show a
+tick at 13 · 0.1 = 1.3000000000000003, it ran the tick at the point's time.
+That made a run depend on its output grid: a tick that changes outputs
+restarts the integrator there, a few ulps earlier on one grid than on
+another, and the steps that follow differ (the hybrid's first 200 s: lost
+energy 1,620,823.32 J at a 1 s grid, .997 at 0.1 s, .820 at 0.5 s, where
+the run before it gave .909 on all three; the app's run, with its 0.1 s
+trace, and a direct run with 1 s points disagreed by 4e-7). Now the tick
+runs first at its own time, and the output point a few ulps before it is
+taken by the event (`at_point` in `after_event`), recorded under its own
+time with the values after the tick, its left limit those before. A tick
+that changes nothing the integrator reads records such a point with its
+iteration variables solved again, as `grid_point` does (89c86bf0 had
+missed that path: a run with a display block recorded interpolated values
+where the run without it recorded solved ones, which
+`state_choice.rs::events_and_ticks_near_the_point_leave_the_run_choosing_again`
+caught). The run is again the same on every grid.
+
+The hybrid's steps, events and block changes go back to the record before
+46f78707 (89c86bf0's) in every case; its values at points move from that
+record by 4e-13 at most (one channel near 7e-11 by 2.3e-7 of itself,
+1.6e-17 absolute: the point now showing the tick). The battery-electric
+and FS cases are kept to the byte. Against the record before this entry,
+as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| hybrid-car/case-hwfet | 1.5e-07 (HV Battery — internal losses) | 2.3e-07 | 904041 → 903483 | 77126 → 77060 | 1.6e-13 → 9.7e-12 |
+| hybrid-car/case-mixed | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296701 → 296432 | 56254 → 56222 | 3.4e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296701 → 296432 | 56254 → 56222 | 3.4e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 3.1e-07 (Phase Bag 2 — fuel consumption) | 5.0e-07 | 1648890 → 1649302 | 118499 → 118505 | 2.9e-11 → 3.0e-11 |
+
+Books inside 1.5e-9 (the hybrid 3.0e-11 at most; worst of all 1.467e-9,
+bev-car City, as before). Time: on four slices, best of 7 alternating
+rounds against the module before it (CPUs 8-15), ratios 1.043 (bev-car
+City, which has no sampled block: noise), 1.004 (hybrid Mixed), 1.007
+(aero-bev UDDS) and 1.003 (bev-car WLTC).

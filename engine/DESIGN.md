@@ -2000,11 +2000,20 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   78 steps over 2 s at rtol 1e-8 (it failed at its start before). A
   model with no state but an equation solved by iteration (`x³ + x =
   time`) is not this one: it runs on IDA, whose only entries of y are
-  its iteration variables, and its outputs carry the integration's error
-  (x 1.8e-5 off the exact root at rtol 1e-4, 2.3e-11 at 1e-10: the
-  outside judge's `count-implicit-nostate-1.0`); solving them by Newton
-  at every point instead, on `Stateless`, would make them exact, and is
-  not done.
+  its iteration variables, which carry the integration's error inside a
+  step (x 1.8e-5 off the exact root at rtol 1e-4, 2.3e-11 at 1e-10: the
+  outside judge's `count-implicit-nostate-1.0`). At an output point the
+  iteration variables are solved again by Newton with the interpolated
+  states held (`run::grid_point`, since 26 November 2026; kept as
+  interpolated where that solve fails), so what a point records solves
+  the model's equations to Newton's tolerance: an open differential's two
+  shares, one of them read from a residual, were 2.5e-2 N·m apart on
+  288 N·m at rtol 1e-6, and agree to 3e-13. Only at the output grid's
+  points (`Recorder::is_output_time`), the points a result shows: the
+  trace's own times (every 0.1 s on a cycle, ten times the grid, for the
+  checks after the run) keep the interpolated values, which those checks
+  read for speeds and times; solving there too cost 4 to 8 % of a
+  battery-electric cycle's run.
 * **IDA's order with the energy books under error control.** SUNDIALS
   7.1.1's IDAS decides an order decrease on the states' errors alone
   (`IDATestError`), and its quadratures' test (`IDAQuadTestError`) did
@@ -2749,7 +2758,15 @@ round).**
   due at one instant (inside a step or at its end, a few ulps apart
   included) are one event: each block reads its inputs with what the
   blocks before it set, and an output point at that instant shows the
-  values after all of them (its left limit those before them all). A
+  values after all of them (its left limit those before them all). The
+  blocks' start (`init` at t0) goes the same way (since 26 November 2026:
+  before, each read the start values, so three Scripts in a chain, each
+  its input + 1, started 1, 1, 1 instead of 1, 2, 3). A tick a few ulps
+  after an output point inside a step is at the point too: it runs first,
+  at its own time, and the point shows it (since 27 November 2026: before,
+  a Sample Time's 13 · 0.1 = 1.3000000000000003 came after the grid's 1.3,
+  whose point showed the value before the tick; moving the tick to the
+  point's time, as 46f78707 did, made a run depend on its output grid). A
   block that reads an iteration variable, after a block before it changed
   a discrete value the iteration variables depend on
   (`RunInfo::z_discretes`, through the assignments), reads it solved

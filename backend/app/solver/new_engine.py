@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import bisect
 import contextlib
+import dataclasses
 import math
 import os
 import re
@@ -63,13 +64,20 @@ from .domains import FMU_COMPONENT, ModelInitError, RunContext
 from .energy import BookFlow, energy_flows
 from .evidence import Evidence
 from .keys import fill_keys
-from .labfig import lab_base
+from .labfig import FTP_WEIGHTS, lab_base
 from .maps import MAP_BLOCK, interp1
 from .network import CONSUMER_TYPES, ModelError, build_model
 from .profiles import distance_axis
 from .references import check_references, hand_checks
 from .reports import DUTY_QUANTITIES, RunRecorder, lane_state, make_reports
-from .runtime import SPEED_LIMIT_BAND, ControlFn, EmitFn, Runtime, usable_energy_left_wh
+from .runtime import (
+    SPEED_LIMIT_BAND,
+    ControlFn,
+    EmitFn,
+    Runtime,
+    motor_max_rpm,
+    usable_energy_left_wh,
+)
 from .sandbox import STRICT, ScriptSandbox, ScriptSpec, why_no_strict_sandbox
 from .verdict import (
     TRACE_STEP_S,
@@ -78,6 +86,7 @@ from .verdict import (
     beyond_data,
     first_not_driven,
     judge,
+    not_driven,
     terminal_checks,
 )
 
@@ -116,10 +125,27 @@ TodayFn = Callable[[Project, str, Optional[EmitFn], Optional[ControlFn]], SimRes
 
 
 class Refusal(NamedTuple):
-    """Why the new engine's path did not run a case: a code of CODES and
-    the reason in words."""
+    """Why the new engine's path did not run a case: a code of CODES, the
+    reason in words, and the engine's own codes where it refused it."""
     code: str
     why: str
+    engine_codes: tuple[str, ...] = ()
+
+
+def refusal_text(why: Refusal, detail: str = "", quick: bool = False, more: str = "") -> str:
+    """A refused run's message: what stopped it first, in words (the
+    engine's own, which name the part, where it refused the model), what to
+    do, and the codes at the end: "Not run: <reason>. [CODE: ENGINE-CODES]"."""
+    if why.engine_codes and detail:  # (the engine's words say it)
+        body = detail
+    else:
+        body = why.why + (f" ({detail})" if detail and detail != why.why else "")
+    body = body.strip().rstrip(".")
+    body = body[:1].upper() + body[1:]
+    codes = why.code + (f": {', '.join(why.engine_codes)}" if why.engine_codes else "")
+    where = " in quick mode" if quick else ""
+    tail = " Set the case's mode to full to run it." if quick else ""
+    return f"Not run{where}: {body}.{more}{tail} [{codes}]"
 
 
 def wanted() -> bool:
@@ -249,11 +275,10 @@ def no_text(case_id: str, why: Refusal, project: Project, detail: str = "") -> S
     cannot run on today's engine, which would run the built-in part in the
     text's place without a word."""
     label = next(iter(texts_of(project).values()))[0]
-    more = f" ({detail})" if detail else ""
-    codes = f"[{why.code}]" + (" [NEW-TEXT]" if why.code != "NEW-TEXT" else "")
+    codes = why if why.code == "NEW-TEXT" else why._replace(code=f"{why.code}, NEW-TEXT")
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run {codes}: {why.why}{more}; {label!r} reads its "
-                            f"equations from a text file, which only the new engine reads.")])
+        level="error", text=refusal_text(codes, detail, more=(
+            f" {label!r} reads its equations from a text file, which only the new engine reads.")))])
 
 
 def replay(project: Project, case_id: str, options: dict, edits: list[LiveEdit]) -> SimResult:
@@ -378,7 +403,8 @@ def quick_failure(e: Exception) -> Refusal:
                                            "to judge at its points once a second")
     why = failure(e)
     code = {"NEW-FAILED": "QUICK-FAILED", "NEW-BUILD": "QUICK-BUILD", "NEW-TEXT": "QUICK-BUILD"}
-    return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"))
+    return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"),
+                   why.engine_codes)
 
 
 def quick(project: Project, case_id: str) -> SimResult:
@@ -391,10 +417,8 @@ def quick(project: Project, case_id: str) -> SimResult:
             return run_quick(project, case_id)
         except Exception as e:  # noqa: BLE001 — told as the reason's code
             why, detail = quick_failure(e), str(e)
-    more = f" ({detail})" if detail else ""
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run [{why.code}] in quick mode: {why.why}{more}. Set the case's "
-                            f"mode to full to run it.")])
+        level="error", text=refusal_text(why, detail, quick=True))])
 
 
 def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> SimResult:
@@ -416,7 +440,8 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=t) for t in e.messages])
     model = ctx.model
-    run = lightsim_engine.fast(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+    run = lightsim_engine.fast(engine_project(project).model_dump_json(), case_id,
+                               cycles_dir=str(cycles.DIR),
                                step=step, texts=read_texts(project))
     fast = run.report["fast"]
     times = [float(t) for t in run.times]
@@ -477,7 +502,7 @@ def failure(e: Exception) -> Refusal:
         EngineError = ()  # noqa: N806 — nothing is the engine's without it
     if isinstance(e, EngineError):
         codes = sorted({str(d.get("code")) for d in getattr(e, "diagnostics", None) or []})
-        return Refusal("NEW-FAILED", f"the new engine refused it ({', '.join(codes) or 'no code'})")
+        return Refusal("NEW-FAILED", "the new engine refused it", tuple(codes))
     if isinstance(e, ModelError):
         return Refusal("NEW-BUILD", "today's model builder refused it")
     if isinstance(e, TextFileError):
@@ -490,9 +515,8 @@ def failure(e: Exception) -> Refusal:
 def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
     """The result of a case the new engine's path did not run: failed, with
     the reason's code and words."""
-    more = f" ({detail})" if detail else ""
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run [{why.code}]: {why.why}{more}.")])
+        level="error", text=refusal_text(why, detail))])
 
 
 def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
@@ -504,9 +528,9 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
-        return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
-                                     f"single run for: bring the value inside them, in the study's range "
-                                     f"if a study set it)")
+        # Data Checks' own words (a single run is refused by them first; a
+        # study's point, whose values they never see, is refused here)
+        return Refusal("NEW-LIMITS", ". ".join(problems))
     try:
         import lightsim_engine  # noqa: F401
     except ImportError:
@@ -563,7 +587,8 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         shipped = project.model_copy(deep=True)
         next(c for c in shipped.cases if c.id == case_id).endDistance = (
             ctx.end_distance - max(0.0, case.startLine))
-    built = lightsim_engine.build(shipped.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+    built = lightsim_engine.build(engine_project(shipped).model_dump_json(), case_id,
+                                  cycles_dir=str(cycles.DIR),
                                   texts=texts)
     plan = _Plan(model, ctx, built, lanes)
     if case.fsEvent:  # the power rule check's own 500 ms average (fs_events._checks), kept on
@@ -615,49 +640,77 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=why)])
     with contextlib.ExitStack() as workers:
-        hosts = {}
-        if specs:
-            # the same checks as today's engine: only approved code runs (a
-            # strict run: the OS sandbox instead), and it runs in the locked-down
-            # worker process (script_trust.py, sandbox.py); the engine's own
-            # Script runner is not used from the app until the owner has decided
-            # it may replace the worker (native_scripts=False)
-            if not confined:
+        def make_hosts():  # (a Script's and an FMU's state is their run's own)
+            hosts = {}
+            if specs:
+                # the same checks as today's engine: only approved code runs (a
+                # strict run: the OS sandbox instead), and it runs in the locked-down
+                # worker process (script_trust.py, sandbox.py); the engine's own
+                # Script runner is not used from the app until the owner has decided
+                # it may replace the worker (native_scripts=False)
+                if not confined:
+                    try:
+                        script_trust.check([(sp.label, sp.code) for sp in specs])
+                    except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+                        return SimResult(caseId=case_id, status="failed", channels=[],
+                                         messages=[SimMessage(level="error", text=str(e))])
+                sandbox = workers.enter_context(ScriptSandbox(specs, strict=confined))
+
+                def runner(spec: ScriptSpec):
+                    ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
+                             if p.direction == "output"}
+
+                    def step_fn(t, dt, inputs):
+                        outs = sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
+                        for key in outs or {}:  # (the engine takes only its ports, as today's does)
+                            if key not in ports:
+                                dropped.setdefault((spec.el_id, key), (
+                                    f"Script '{spec.label}' returned '{key}' which is not one of its "
+                                    f"output ports — value dropped."))
+                        return outs
+                    return step_fn
+                hosts.update(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
+            if fmus:
                 try:
-                    script_trust.check([(sp.label, sp.code) for sp in specs])
-                except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+                    hosts["fmus"] = {el_id: _fmu_host(model, el_id, workers) for el_id in fmus}
+                except ModelInitError as e:  # as today's engine says it
                     return SimResult(caseId=case_id, status="failed", channels=[],
-                                     messages=[SimMessage(level="error", text=str(e))])
-            sandbox = workers.enter_context(ScriptSandbox(specs, strict=confined))
-
-            def runner(spec: ScriptSpec):
-                ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
-                         if p.direction == "output"}
-
-                def step_fn(t, dt, inputs):
-                    outs = sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
-                    for key in outs or {}:  # (the engine takes only its ports, as today's does)
-                        if key not in ports:
-                            dropped.setdefault((spec.el_id, key), (
-                                f"Script '{spec.label}' returned '{key}' which is not one of its "
-                                f"output ports — value dropped."))
-                    return outs
-                return step_fn
-            hosts.update(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
-        if fmus:
-            try:
-                hosts["fmus"] = {el_id: _fmu_host(model, el_id, workers) for el_id in fmus}
-            except ModelInitError as e:  # as today's engine says it
+                                     messages=[SimMessage(level="error", text=t) for t in e.messages])
+            return hosts
+        hosts = make_hosts()
+        if isinstance(hosts, SimResult):
+            return hosts
+        failed = None
+        try:
+            run = go(**hosts)
+        except Exception as e:  # noqa: BLE001 — raised again unless it is a stop of the run
+            failed = _stopped(e, case, model, ctx, built)
+            if failed is None:
+                raise
+            # the run again to its last output point before the stop: its trace
+            # and figures up to there (a live run: with the edits it made)
+            dt = float(opts.get("outputStep") or case.timeStep or 1.0)
+            t_cut = math.floor((failed[0] - 1e-9 * max(1.0, failed[0])) / dt) * dt
+            if t_cut <= 0.0:
                 return SimResult(caseId=case_id, status="failed", channels=[],
-                                 messages=[SimMessage(level="error", text=t) for t in e.messages])
-        run = go(**hosts)
+                                 messages=[SimMessage(level="error", text=failed[1])])
+            again = make_hosts()
+            if isinstance(again, SimResult):
+                return again
+            more = dict(kw, t_end=t_cut)
+            if live is not None and live.given:
+                more["edits"] = [*more.get("edits", []), *live.given]
+            run = built.simulate(**more, **again)
     stopped = run.report["stopped"] is not None
     # the live edits it took (each where the engine took it), and the notes
     # of those it did not make
     taken = live.made(run.report["edits"]) if live else _made(replayed, run.report["edits"], model)
     result = _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
-                     list(dropped.values()), stopped, [e for e in taken if not e.note])
+                     list(dropped.values()), stopped, [e for e in taken if not e.note], failed)
     result.messages += _notes(taken)
+    if live is not None:  # (a table's note: a live edit is listed only with a number)
+        told = {m.text for m in result.messages}
+        result.messages += [SimMessage(level="info", text=t) for t in live.said if t not in told]
     if totals is not None:  # (_result has read each battery's end SOC and the fuel into ctx)
         totals.update(balance.run_totals(ctx, soc_start))
     # what ran it
@@ -676,7 +729,8 @@ def _made(taken: list[tuple], report_edits: list, model) -> list[LiveEdit]:
     the report's are the first of those it was given; one it was given and
     did not make came too late); one the run did not make with its note,
     which says why. ``taken``: (element, key, value, the run's time, given
-    to the engine, its note or None)."""
+    to the engine's control, its note or None); one made at the start, given
+    to the model the run starts from, is at t = 0 and not in the report."""
     report = iter(report_edits)
     out = []
     for el_id, key, value, t, given, note in taken:
@@ -707,6 +761,30 @@ POLL_S = 0.02  # how often a live run's control is read, s
 
 class _Later(Exception):
     """A live edit the run cannot take: it takes effect on the next run."""
+
+
+def engine_project(project: Project) -> Project:
+    """The project as the engine is given it: without the parts the
+    simulation leaves out because nothing is connected to them
+    (validation.left_out, the Data Checks' own rule), and their wires and
+    signal links. The one place the engine's import is told what is in the
+    model: a full run, quick mode, a lap and a live edit's trial build all
+    hand it over through here."""
+    from ..validation import left_out  # (validation imports this package)
+    try:
+        gone = set(left_out(project, build_model(project)))
+    except ModelError:  # (the run says why the model cannot be built)
+        return project
+    if not gone:
+        return project
+    out = project.model_copy(deep=True)
+    for system in out.systems:
+        system.elements = [e for e in system.elements if e.id not in gone]
+        system.connections = [c for c in system.connections
+                              if c.sourceElementId not in gone and c.targetElementId not in gone]
+    out.dataBusConnections = [d for d in out.dataBusConnections
+                              if d.element1Id not in gone and d.element2Id not in gone]
+    return out
 
 
 def _context(project: Project, case_id: str) -> RunContext:
@@ -767,17 +845,15 @@ def _fmu_host(model, el_id: str, workers: contextlib.ExitStack) -> Callable:
 def _checked(ctx: RunContext) -> str:
     """What the path's checks after a run read of today's parts as they
     were at the run's start, where today's engine checks them at each step
-    with the values then: the Ambient's air (_runtime), each battery's
+    with the values then: each battery's
     minimum SOC, charge power, power cap and checks (_terminal, _supply),
-    each E-Motor's and Engine's maximum speed (_over_speed), each table's
-    axes (_tables), the Vehicle's CG height and Downforce Area (the lift). A
-    live edit that changes any of it takes effect on the next run (_Edits)."""
-    amb = ctx.params(ctx.amb_id) if ctx.amb_id else {}
-    return repr((amb.get("temperature_C"), amb.get("pressure_kPa"),
-                 ctx.load_shift() if ctx.veh_id else None,
+    each table's axes (_tables), the Vehicle's CG height and Downforce Area
+    (the lift). A live edit that changes any of it takes effect on the next
+    run (_Edits). (A machine's maximum speed is read as each edit left it,
+    at its time: _over_speed.)"""
+    return repr((ctx.load_shift() if ctx.veh_id else None,
                  [(b.el_id, b.min_soc, b.max_charge_w, b.p_cap_w, b.check)
                   for b in ctx.batteries.values()],
-                 [(el, m.speed_use.edge) for el, m in (*ctx.motors.items(), *ctx.engines.items())],
                  sorted((str(k), m.ranges) for k, m in ctx.maps.items())))
 
 
@@ -794,6 +870,10 @@ class _Edits:
         self.case_id, self.built, self.texts = case_id, built, texts or {}
         self.params = dict(built.params())  # the run's, as the edits leave them
         self.checked = _checked(_context(self.project, case_id))
+        # what the engine builds from them, data and all (its cache key): an
+        # edit that moves it and no parameter changes data built into the
+        # model (a profile), for the next run
+        self.key = self.trial_key = built.report["cache_key"]
 
     def changes(self, el_id: str, key: str, value) -> dict:
         """The engine's parameter changes an edit makes on top of those
@@ -805,7 +885,7 @@ class _Edits:
         case = next(c for c in trial.cases if c.id == self.case_id)
         case.parameterOverrides.setdefault(el_id, {})[key] = value
         try:
-            b = lightsim_engine.build(trial.model_dump_json(), self.case_id,
+            b = lightsim_engine.build(engine_project(trial).model_dump_json(), self.case_id,
                                       cycles_dir=str(cycles.DIR), texts=self.texts)
             checked = _checked(_context(trial, self.case_id))
         except Exception as e:  # noqa: BLE001 — the engine's refusal of the value
@@ -818,14 +898,20 @@ class _Edits:
         if checked != self.checked:
             raise _Later("the new engine's checks after its run read it as it was at the run's "
                          "start: it takes effect on the next run")
-        return {n: v for n, v in new.items()
-                if v != self.params[n] and not (math.isnan(v) and math.isnan(self.params[n]))}
+        changes = {n: v for n, v in new.items()
+                   if v != self.params[n] and not (math.isnan(v) and math.isnan(self.params[n]))}
+        if not changes and b.report["cache_key"] != self.key:
+            raise _Later("the new engine builds it into the model as data, not a value it can "
+                         "change during a run: it takes effect on the next run")
+        self.trial_key = b.report["cache_key"]
+        return changes
 
     def keep(self, el_id: str, key: str, value, changes: dict) -> None:
         """An edit the run took: the next ones build on it."""
         case = next(c for c in self.project.cases if c.id == self.case_id)
         case.parameterOverrides.setdefault(el_id, {})[key] = value
         self.params.update(changes)
+        self.key = self.trial_key
 
 
 class _Live:
@@ -843,17 +929,26 @@ class _Live:
         import lightsim_engine
 
         self.case, self.model, self.emit, self.control = case, model, emit, control
+        self.built = built
         self.pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
         self.rc = lightsim_engine.RunControl(queue=LIVE_QUEUE if emit else 0)
         self.edits = _Edits(project, case.id, built, texts)
         # the edits taken, in order: (element, key, value, the run's time,
         # given to the engine, the note of one the run does not make: _made)
         self.taken: list[tuple[str, str, object, float, bool, Optional[str]]] = []
+        # the engine's changes it gave the run's control, at their times (a run
+        # the engine stops is run again to its stop with them)
+        self.given: list[tuple[float, dict]] = []
         self.said: set[str] = set()
         ports = {(el_id, p.id) for el_id, cdef in model.cdef_of.items()
                  for p in [*cdef.ports, *(model.elements[el_id].dynamicPorts or [])]}
         self.ports = ports
         self.keep: Optional[list[tuple[int, str]]] = None  # the result's channels in a point
+        # the check that the car drives while the view goes (verdict.not_driven,
+        # today's CycleTrace): the target's distance so far by the trapezoid
+        # rule over the points, against the vehicle's
+        self.driven: Optional[tuple[int, int]] = None  # (target km/h, distance km) in a point
+        self.cycle_m, self.last = 0.0, None
 
     def drive(self, simulate):
         """Runs ``simulate(control=...)`` and returns its Run."""
@@ -866,6 +961,10 @@ class _Live:
                 out["error"] = e
 
         worker = threading.Thread(target=work, name="lightsim-new-engine-run", daemon=True)
+        # the edits already waiting are made at t = 0: given to the model the
+        # run starts from (the run's control makes an edit from its next
+        # output time on, the first at 0.01 s)
+        self._read(start=True)
         t0 = time.monotonic()
         worker.start()
         try:
@@ -901,23 +1000,37 @@ class _Live:
         if self.keep is None:  # (the channels the result keeps: those with a port)
             self.keep = [(k, n) for k, n in enumerate(self.rc.channels)
                          if ":" in n and tuple(n.split(":", 1)) in self.ports]
+            names = self.rc.channels
+            tgt = f"{self.model.driver}:sig_target_in" if self.model.driver else None
+            dist = f"{self.model.vehicle}:sig_distance" if self.model.vehicle else None
+            if tgt in names and dist in names:
+                self.driven = (names.index(tgt), names.index(dist))
+        if self.driven is not None:
+            k_t, k_d = self.driven
+            v, d = float(values[k_t]), float(values[k_d]) * 1000.0
+            if self.last is not None:
+                self.cycle_m += 0.5 * (v + self.last[1]) / 3.6 * (t - self.last[0])
+            self.last = (t, v)
+            if (problem := not_driven(t, self.cycle_m, d)) is not None:
+                self.driven = None  # (said once)
+                self.emit({"type": "message", "level": "warning", "text": problem})
         pct = min(100.0, round(100.0 * t / max(float(self.case.duration), 1e-9), 1))
         self.emit({"type": "step", "t": t, "pct": pct,
                    "values": {n: _number(values[k]) for k, n in self.keep}})
 
-    def _read(self) -> None:
+    def _read(self, start: bool = False) -> None:
         for msg in self.control() if self.control else ():
             if msg.get("type") == "cancel":
                 self.rc.cancel()
             elif msg.get("type") == "set_param":
-                self._edit(str(msg.get("elementId")), str(msg.get("key")), msg.get("value"))
+                self._edit(str(msg.get("elementId")), str(msg.get("key")), msg.get("value"), start)
 
-    def _edit(self, el_id: str, key: str, value) -> None:
+    def _edit(self, el_id: str, key: str, value, start: bool = False) -> None:
         model = self.model
         if el_id not in model.params_of:
             return  # (no such part: as today's, nothing)
         pdef = next((p for p in model.cdef_of[el_id].parameters if p.key == key), None)
-        t = self.rc.t
+        t = 0.0 if start else self.rc.t
         try:
             if pdef is not None and pdef.variability == "fixed":
                 raise _Later("structural parameters take effect on the next run")
@@ -936,10 +1049,14 @@ class _Live:
             changes = self.edits.changes(el_id, key, value)
             if changes:
                 try:
-                    self.rc.set_params(changes)
+                    (self.built if start else self.rc).set_params(changes)
+                    if not start:
+                        self.given.append((t, changes))
                 except ValueError as e:  # the engine's words
                     raise _Later(f"the new engine takes it on the next run ({e})") from e
-            self.taken.append((el_id, key, value, t, bool(changes), None))
+            # (one made at the start the model runs from: not the run's
+            # control's to make, so not among the edits its report lists)
+            self.taken.append((el_id, key, value, t, bool(changes) and not start, None))
             self.edits.keep(el_id, key, value, changes)
         except _Later as e:
             note = f"'{model.elements[el_id].label}.{key}' changed — {e} [{NEXT_RUN}]."
@@ -1047,7 +1164,10 @@ class _Plan:
             *((b, ("soc", "i_mpp", "i_dis_lim", "i_ch_lim", "i_floor", "i_full", "p_absorb",
                    "t_held", "p_deliver", "sig_power", "soc_w", "i_dis_cur", "i_ch_cur"))
               for b in ctx.batteries),
-            *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
+            *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES),
+            # the Driver's brake pedal, and the speed (_full_brake)
+            *(((model.driver, ("sig_brake_pedal",)),) if model.driver else ()),
+            *(((ctx.veh_id, ("sig_speed",)),) if ctx.veh_id else ()))}
         # what each table rule of today's reads (BRANCH_READS' uses), on the
         # trace: its time past the data counted there (_branch_share)
         for el_id, cdef in model.cdef_of.items():
@@ -1079,12 +1199,16 @@ def _finite(x) -> bool:
 
 def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             laps_warning: Optional[str], script_warnings: tuple[str, ...] = (),
-            stopped: bool = False, made: list[LiveEdit] = ()) -> SimResult:
+            stopped: bool = False, made: list[LiveEdit] = (),
+            failed: Optional[tuple[float, str, bool]] = None) -> SimResult:
     """Today's SimResult of the new engine's run: its evidence judged by the
     verdict and made into the reports by today's code (evidence.py); a run
     stopped where it was (a cancel) judged as today's judges a stopped one;
     the parts read as edited by the live edits it ``made``, as today's
-    RunContext has them at its run's end."""
+    RunContext has them at its run's end; a run the engine stopped
+    (``failed``: the time, its message, whether the solution broke down)
+    run to its last output point before the stop, judged as today's judges
+    a run an error cut short."""
     from . import core
 
     case_id = case.id
@@ -1110,6 +1234,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     if stopped:  # (today's words)
         messages.append(SimMessage(level="info", text=f"Simulation cancelled by user at t = "
                                                       f"{solved:g} s."))
+    if failed is not None:
+        messages.append(SimMessage(level="error", text=failed[1]))
     for d in built.report["warnings"]:  # the import's and preparation's
         start = d.get("code") in START_NOTES
         level = "info" if start or d.get("severity") != "warning" else "warning"
@@ -1219,17 +1345,17 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         ev.grip_limited_s = pct / 100.0 * (solved - (times[0] if times else 0.0))
     ev.grip_limited_s = ev.grip_limited_s or 0.0
     _tables(ctx, run, messages)
-    _over_speed(ctx, plan, run, messages)
+    _over_speed(ctx, plan, run, messages, _edges(project, case.id, made, ctx))
     messages += [SimMessage(level="warning", text=t)
                  for t in _supply(ctx, plan, run) + list(script_warnings)]
     bms_s, bms_notes = _bms(ctx, plan, run)
-    messages += [SimMessage(level="info", text=t) for t in bms_notes]
+    messages += [SimMessage(level="info", text=t) for t in bms_notes + _full_brake(ctx, plan, run)]
     # today's own checks of the values the run used, in its words: what the
     # RunContext said while it was built (a Wheelbase of 0 with a CG
     # height, a CG height on one axle, wheels off the road at the start, a
     # driveline over-constrained) and what a step of today's says once it
     # sees it, asked of the run (_runtime)
-    _runtime(ctx, plan, run, times[0] if times else 0.0)
+    _runtime(ctx, plan, run, times[0] if times else 0.0, _airs(project, case.id, made, ctx))
     messages += ctx.rt.messages
     books = run.energy or {}
     ev.flows = _flows(model, inst, books, integ, _port_flows(plan, run))
@@ -1273,7 +1399,9 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         messages.append(SimMessage(level="warning", text=problem))
     series = {tuple(name.split(":", 1)): values for name, values in raw.items() if ":" in name}
     verdict = judge(trace, ev.distance, series, ctx.performance, solved, core.judged_uses(ev),
-                    stopped, case)
+                    stopped or failed is not None, case)
+    if failed is not None and failed[2]:
+        verdict = dataclasses.replace(verdict, broke_down=True)
     messages += [SimMessage(level=level, text=text) for level, text in verdict.messages]
 
     # (a Race Track's channels are a lap case's: in any other case its outputs read 0)
@@ -1302,6 +1430,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             s.label, s.value, s.limit, s.passed = row_label, v, lim, ok
         messages += [SimMessage(level="warning", text=t) for t in problems]
     _bms_rows(ctx, summary, bms_s)
+    _ftp_rows(summary)
     edge_rows: set[str] = {"Energy balance residual"}
     edges = core.outside_rows(ev, solved)
     edge_rows |= {r.label for r in edges}
@@ -1319,7 +1448,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
     electric = (net_wh > 0 and sum(ec.fuel_used_kg for ec in ctx.engines.values()) <= 0
                 and not ctx.fuelcells)
-    not_valid = core.not_valid_first(ev, verdict, summary, stopped, None, times)
+    not_valid = core.not_valid_first(ev, verdict, summary, stopped,
+                                     failed[0] if failed is not None else None, times)
     core.not_valid_last(ev, verdict, summary, not_valid, edge_rows, lab_base(summary, electric))
     messages += [SimMessage(level=level, text=text) for level, text in  # its FS event rows
                  fs_events.add_event_rows(case, ctx, None, summary, finished=not stopped,
@@ -1577,6 +1707,75 @@ def _map_outside(el, key: str, axis: int, rec) -> SimMessage:
 
 
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
+
+
+_AXIS_WORDS = {"first": 0, "second": 1, "third": 2, "fourth": 3}
+
+
+def _stopped(e: Exception, case, model, ctx, built) -> Optional[tuple[float, str, bool]]:
+    """A run the engine stopped part-way, in the user's words: (when, the
+    message, whether the solution broke down), or None for any other
+    failure. A table read past an axis set to Error: the part's and the
+    table's labels, the axis, the value read and the data's range in the
+    app's units, as today's engine says it. A value that is not a number:
+    the part's label and the port (or variable) by name."""
+    try:
+        from lightsim_engine import ModelError as EngineError
+    except ImportError:
+        return None
+    if not isinstance(e, EngineError):
+        return None
+    diags = getattr(e, "diagnostics", None) or []
+    d = next((d for d in diags if d.get("code") in ("RUN-TABLE", "RUN-NOT-FINITE")), None)
+    if d is None:
+        return None
+    text = str(d.get("message", ""))
+    when = re.search(r"at t = ([-+0-9.eE]+) s", text)
+    if when is None:
+        return None
+    t = float(when.group(1))
+    el_of = {inst: el_id for el_id, inst in built.report["instances"].items()}
+    if d["code"] == "RUN-NOT-FINITE":
+        got = re.search(r"the variable '([^']+)' (is not a number \(NaN\)|is infinite)", text)
+        what = f"a value of the run {got.group(2) if got else 'is not a number'}"
+        if got and "." in got.group(1):
+            inst, var = got.group(1).split(".", 1)
+            el_id = el_of.get(inst)
+            if el_id is not None:
+                el, cdef = model.elements[el_id], model.cdef_of[el_id]
+                port = next((p for p in [*cdef.ports, *(el.dynamicPorts or [])] if p.id == var), None)
+                what = (f"{cdef.name} '{el.label}': its {'output ' + port.name if port else var} "
+                        f"{got.group(2)}")
+        return t, (f"{what} at t = {t:.2f} s — the run stopped there, as no result after it would "
+                   f"mean anything: look for a division by zero, a square root or logarithm of a "
+                   f"negative number, or a block (a Script, say) that returns NaN."), True
+    got = re.search(r"the table '([^']+)' was read outside its data on its (\w+) axis"
+                    r"(?: \(read at ([-+0-9.eE]+|NaN|inf); its data ([-+0-9.eE]+) to ([-+0-9.eE]+)\))?",
+                    text)
+    words = None
+    if got:
+        inst, _, key = got.group(1).rpartition(".")
+        el_id, axis = el_of.get(inst), _AXIS_WORDS.get(got.group(2), 0)
+        rule = BRANCH_READS.get((model.cdef_of[el_id].id, key)) if el_id else None
+        if rule is not None and rule.key is not None:
+            key = rule.key(ctx.params(el_id))
+        m = ctx.maps.get((el_id, key)) if el_id else None
+        uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
+        if m is not None and axis < len(m.ranges) and axis < len(uses) and m.ranges[axis]:
+            lo, hi = m.ranges[axis]
+            use = uses[axis]
+            value = ""
+            if got.group(3) is not None:
+                a, elo, ehi = (float(got.group(k)) for k in (3, 4, 5))
+                shown = lo + (a - elo) * (hi - lo) / (ehi - elo) if ehi != elo else a
+                value = f" {shown:.6g} {use.unit}"
+            words = (f"{m.name}: {use.axis}{value} is outside its data ({lo:g} to {hi:g} "
+                     f"{use.unit}) at t = {t:.2f} s — the run stopped because this axis is set to "
+                     f"stop the run (Error): extend the table, or set its outside-the-data setting "
+                     f"to Clamp or Linear.")
+    if words is None:  # (a table the app does not name: the engine's words)
+        words = f"{text} — the run stopped there."
+    return t, words, False
 
 
 class TableError(Exception):
@@ -1840,7 +2039,34 @@ def _first(run, name: Optional[str], hit: Callable[[float], bool]) -> Optional[f
 ENGINE_REV_BAND = 1e-3  # an Engine's rev limiter band above its limit, of it (lsim-lib's REV_BAND)
 
 
-def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
+def _edges(project: Project, case_id: str, made, ctx) -> dict[str, list[tuple[float, float]]]:
+    """Each E-Motor's and Engine's maximum speed (1/min) through the run, for
+    those a live edit the run made moves: (t, the maximum from then on), the
+    first at t = 0 as the run started (ctx has the parts as the edits left
+    them at the run's end)."""
+    out: dict[str, list[tuple[float, float]]] = {}
+    machines = {**ctx.motors, **ctx.engines}
+    if not any(e.elementId in machines for e in made):
+        return out
+    start = _context(project, case_id)
+    now_edge = {el: m.speed_use.edge for el, m in (*start.motors.items(), *start.engines.items())}
+    edited = project.model_copy(deep=True)
+    case = next(c for c in edited.cases if c.id == case_id)
+    for e in sorted(made, key=lambda e: e.t):
+        case.parameterOverrides.setdefault(e.elementId, {})[e.key] = e.value
+        if e.elementId not in now_edge:
+            continue
+        now = _context(edited, case_id)
+        m = now.motors.get(e.elementId) or now.engines.get(e.elementId)
+        if m is not None and m.speed_use.edge != now_edge[e.elementId]:
+            out.setdefault(e.elementId, [(0.0, now_edge[e.elementId])]).append(
+                (float(e.t), float(m.speed_use.edge)))
+            now_edge[e.elementId] = m.speed_use.edge
+    return out
+
+
+def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
+                edges: Optional[dict[str, list[tuple[float, float]]]] = None) -> None:
     """Each E-Motor's and Engine's time above its maximum speed and its
     highest speed then (today's speed_use records, which the verdict and
     the summary judge), from the run: the time the line through its traced
@@ -1851,7 +2077,8 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
     ENGINE_REV_BAND, so only what drives it higher is above), its
     highest speed over every point the integrator visited and when the
     trace saw it; and, as today's engine says it, a note when it first
-    went above."""
+    went above. A live edit of its maximum speed counts from its time on
+    (``edges``: each machine's (t, maximum) from its edits)."""
     tr = run.trace or {}
     times = [float(t) for t in tr.get("times", [])]
     integ = run.integrals
@@ -1860,24 +2087,43 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
         use, got = m.speed_use, integ.get(f"{el_id}:sig_speed")
         if name is None or not got or len(times) < 2:
             continue
-        n_max = use.edge
-        top = n_max * (1.0 + 1e-6) * (1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0))
+        steps = (edges or {}).get(el_id) or [(0.0, use.edge)]
+
+        def n_at(t: float) -> float:  # the maximum in force at t
+            return [n for te, n in steps if te <= t][-1] if t >= steps[0][0] else steps[0][1]
+        band = 1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0)
         xs = [abs(float(x)) for x in tr[name]]
-        above, first = 0.0, None
+        above, first, n_first = 0.0, None, steps[0][1]
         for k in range(1, len(times)):
+            top = n_at(times[k]) * (1.0 + 1e-6) * band
             a, b, dt = xs[k - 1] - top, xs[k] - top, times[k] - times[k - 1]
             if a > 0 or b > 0:
                 share = 1.0 if a > 0 and b > 0 else max(a, b) / abs(a - b)
                 above += share * dt
                 if first is None:
                     first = times[k - 1] if a > 0 else times[k] - share * dt
+                    n_first = n_at(times[k])
         label = ctx.model.elements[el_id].label
         highest = max(float(got["max"]), -float(got["min"]))
+        n_max = use.edge
         if el_id in ctx.engines and highest >= n_max * (1 - 1e-9):
             # held at its rev limit: today's note (MOD-18)
             messages.append(SimMessage(level="info", text=(
                 f"Engine '{label}' reached its maximum speed ({n_max:,.0f} 1/min, the full-load "
                 f"curve's last point) — the rev limiter cuts fuel and torque above it.")))
+        if el_id in ctx.motors:
+            # into the last 2 % below its maximum, where its drive torque
+            # tapers to zero: today's note (MOD-18), at the first trace point there
+            k0 = next((k for k in range(len(xs))
+                       if xs[k] >= n_at(times[k]) * (1.0 - SPEED_LIMIT_BAND)), None)
+            if k0 is not None:
+                mc, n0 = ctx.motors[el_id], n_at(times[k0])
+                note = (", the last speed point of its full-load curve"
+                        if n0 == motor_max_rpm(mc.full_load.pts, 0) else "")
+                messages.append(SimMessage(level="info", text=(
+                    f"E-Motor '{label}' reached its maximum speed ({n0:,.0f} 1/min{note}) at "
+                    f"t = {times[k0]:.2f} s — its drive torque falls to zero over the last 2 % "
+                    f"below it.")))
         if above <= 0:
             continue
         k = max(range(len(xs)), key=xs.__getitem__)
@@ -1885,11 +2131,11 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
         use.value = max(float(got["max"]), -float(got["min"]))
         use.t = times[k]
         messages.append(SimMessage(level="info", text=(
-            f"E-Motor '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min) at "
+            f"E-Motor '{label}' was driven above its maximum speed ({n_first:,.0f} 1/min) at "
             f"t = {first:.2f} s; its inverter is off above it, so it gives no drive torque and "
             f"no regeneration. The run summary says for how long and how far."
             if el_id in ctx.motors else
-            f"Engine '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min, the "
+            f"Engine '{label}' was driven above its maximum speed ({n_first:,.0f} 1/min, the "
             f"full-load curve's last point) at t = {first:.2f} s; it is not fired above it. The "
             f"run summary says for how long and how far.")))
 
@@ -1897,13 +2143,30 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
 LIFT_N = 1e-6  # an axle load at most this carries nothing, N (a lifted axle's is 0 to round-off)
 
 
-def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
+def _airs(project: Project, case_id: str, made, ctx) -> list[tuple[float, dict]]:
+    """The Ambient's values through the run when a live edit the run made
+    changed them: (t, its parameters from then on), the first at the run's
+    start; empty when no edit touched it (ctx has the parts as the edits
+    left them at the run's end)."""
+    if not ctx.amb_id or not any(e.elementId == ctx.amb_id for e in made):
+        return []
+    ap = dict(_context(project, case_id).params(ctx.amb_id))
+    out = [(0.0, dict(ap))]
+    for e in sorted(made, key=lambda e: e.t):
+        if e.elementId == ctx.amb_id:
+            ap[e.key] = e.value
+            out.append((float(e.t), dict(ap)))
+    return out
+
+
+def _runtime(ctx, plan: _Plan, run, t0: float, airs: Optional[list[tuple[float, dict]]] = None) -> None:
     """Today's checks that a step of its run makes once it sees them
     (RunContext: Data Checks never see a study's point, a sweep or a live
     edit), asked of the run and said by today's own code into the
     RunContext's messages: the Ambient's air outside the usual (at the
-    run's start, as today's first step: the new engine reads the case's
-    Ambient throughout), with the air density the run's Vehicle used; an
+    run's start, as today's first step, with the air density the run's
+    Vehicle used; with live edits of the Ambient, as each left it at its
+    time, ``airs``, said once at the first time it is outside); an
     E-Motor with no live supply (its supply voltage at 1 V or less at any
     point the integrator visited); the Vehicle's wheels lifting off the
     road, which today's engine checks only with a CG height or a Downforce
@@ -1923,7 +2186,11 @@ def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
     integ = run.integrals
     if ctx.veh_id:
         rho = integ.get(f"{plan.inst.get(ctx.veh_id, ctx.veh_id)}.rho")
-        ctx.read_ambient(t0, float(rho["max"]) if rho else None)
+        if airs:
+            for t, ap in airs:
+                ctx.read_ambient(max(t, t0), None, ap)
+        else:
+            ctx.read_ambient(t0, float(rho["max"]) if rho else None)
     for el_id in ctx.motors:
         got = integ.get(f"{plan.inst.get(el_id, el_id)}.v")
         if got and got["min"] <= 1.0:
@@ -2190,6 +2457,72 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
     return list(out.values())
 
 
+def _ftp_rows(summary: list[SummaryValue]) -> None:
+    """EPA's FTP weighting of the FTP-75's three bags (today's lab_rows):
+    0.43 × (bags 1 + 2) + 0.57 × (bags 3 + 2), each half its energy or fuel
+    over its distance, from the engine's phase rows, after them."""
+    by = {s.key: s for s in summary}
+    if "phase4_distance_km" in by:
+        return
+    bags = []
+    for k in (1, 2, 3):
+        d = by.get(f"phase{k}_distance_km")
+        if d is None or not d.label.startswith("Phase Bag "):
+            return
+        bags.append((d.value, by.get(f"phase{k}_consumption_kwh_per_100km"),
+                     by.get(f"phase{k}_fuel_consumption_l_per_100km")))
+    (d1, _, _), (d2, _, _), (d3, _, _) = bags
+    if d1 + d2 <= 0 or d3 + d2 <= 0:
+        return
+    wc, wh = FTP_WEIGHTS
+    rows = []
+    for i, key, label, unit in ((1, "ftp_consumption_kwh_per_100km", "FTP weighted consumption",
+                                 "kWh/100km"),
+                                (2, "ftp_fuel_consumption_l_per_100km", "FTP weighted fuel consumption",
+                                 "l/100km")):
+        if all(b[i] is not None for b in bags):
+            # (per 100 km × km / 100: the energy or litres of each bag)
+            q1, q2, q3 = (b[i].value * b[0] / 100.0 for b in bags)
+            rows.append(SummaryValue(key=key, label=label, unit=unit,
+                                     value=100.0 * (wc * (q1 + q2) / (d1 + d2) + wh * (q3 + q2) / (d3 + d2))))
+    last = max(i for i, s in enumerate(summary) if s.key.startswith("phase"))
+    summary[last + 1:last + 1] = rows
+
+
+def _full_brake(ctx, plan: _Plan, run) -> list[str]:
+    """Today's note that a battery too full to take its Max Charge Power
+    takes no recuperation while the Driver brakes (DriverSlave: braking at
+    3 m/s or more, where recuperation is not faded out), once per battery
+    on the bus of a motor the Driver recuperates with, at the first traced
+    point it holds."""
+    model = ctx.model
+    if not model.driver or not ctx.veh_id:
+        return []
+    tr = _Listed(run.trace)
+    times = tr.get("times", [])
+    ask = plan.supply.get(model.driver, {}).get("sig_brake_pedal")
+    v = plan.supply.get(ctx.veh_id, {}).get("sig_speed")
+    if ask is None or v is None or len(times) < 2:
+        return []
+
+    def at(el_id: str, name: str, k: int) -> Optional[float]:
+        key = plan.supply.get(el_id, {}).get(name)
+        return None if key is None else float(tr[key][k])
+
+    out = []
+    for b_id in sorted({bus.battery for m in ctx.motors if (bus := ctx.motor_bus.get(m)) is not None
+                        and bus.battery}):
+        b = ctx.batteries[b_id]
+        for k in range(len(times)):
+            soc = at(b_id, "soc", k)
+            if tr[ask][k] > 0 and tr[v][k] >= 3.0 and (
+                    (soc is not None and soc >= 1.0 - 1e-9) or _full(b, at, k)):
+                out.append(f"Battery '{model.elements[b_id].label}' is full — no recuperation "
+                           f"while braking (t = {times[k]:.0f} s).")
+                break
+    return out
+
+
 # the throughput power a part's duty values are of (energy.py), by its kind
 _THROUGH = {"battery.generic": "sig_power", "motor.emotor": "sig_elec_power",
             "electric.constant_drive": "sig_power", "electric.climate": "sig_power",
@@ -2283,6 +2616,10 @@ def _flows(model, inst: dict, books: dict, integ: dict,
         f.out_j += 0.5 * (thr - e_in)
         f.loss_j += p["lost_J"] + p.get("impulse_lost_J", 0.0)
         f.stored_j += p["stored_change_J"]
+        if p.get("impulse_lost_J", 0.0) and f.part == "mech.gearbox":
+            # what its rigid engagements took at its gear changes: the named
+            # term today's books give it
+            f.terms["gear shifts"] = f.terms.get("gear shifts", 0.0) + p["impulse_lost_J"]
 
     def flow(name: str) -> tuple[float, float]:  # ∫ p⁺ dt, ∫ p⁻ dt of a kW channel, J
         got = integ.get(name)

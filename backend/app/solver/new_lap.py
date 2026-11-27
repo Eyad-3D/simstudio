@@ -41,8 +41,8 @@ def lap_model(project: Project, case_id: str):
     """The case's lap model (lightsim_engine.LapModel)."""
     import lightsim_engine
 
-    from .new_engine import read_texts  # (new_engine imports this package)
-    return lightsim_engine.lap_model(project.model_dump_json(), case_id,
+    from .new_engine import engine_project, read_texts  # (new_engine imports this package)
+    return lightsim_engine.lap_model(engine_project(project).model_dump_json(), case_id,
                                      cycles_dir=str(cycles.DIR), texts=read_texts(project))
 
 

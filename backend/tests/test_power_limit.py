@@ -5,6 +5,7 @@ Formula Student energy meter measures it) on the discharge side of the
 source-limit handshake; recuperation is not limited. With a limit or a class
 set, the run summary checks the terminal power (averaged over a window) and
 the pack voltage against them, with pass/fail on the rows."""
+import math
 import random
 
 import pytest
@@ -219,7 +220,8 @@ def test_usable_energy_left():
     by_hand = q_ah / 100 * (10 * (318 + 330) / 2 + 20 * (330 + 342) / 2 + 20 * (342 + 352) / 2
                             + 20 * (352 + 362) / 2 + 10 * (362 + 368) / 2) / 1e3
     row = _rows(idle)[f"{BAT} — usable energy left"]
-    assert _rows(idle)[f"{BAT} — final SOC"].value == 90.0
+    # standing with no command: the inverter is off and draws nothing
+    assert _rows(idle)[f"{BAT} — final SOC"].value == pytest.approx(90.0, abs=1e-6)
     assert row.value == pytest.approx(by_hand, abs=1e-3) and row.passed is True
     assert (ocv_mean(DEFAULT_OCV, lo=10.0, hi=90.0) * 0.8 * q_ah / 1e3
             == pytest.approx(by_hand, rel=1e-12))
@@ -280,8 +282,8 @@ def test_no_limit_changes_nothing():
 def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
     """A case's Power Limit Margin of 120 % once gave a negative power cap
     and a ZeroDivisionError in the source-limit handshake. Data Checks
-    refuse it for that case; run without them (the solver called directly),
-    the margin is held to 0-100 % and the run ends normally."""
+    refuse it for that case, and so does the run (the solver called
+    directly, as a study's point is), in the same words."""
     from app.validation import run_blockers, validate_project
 
     proj = _car("0:0; 0.01:100; 30:100", 2.0, 0.1, performance=True, output_power_limit_kW=40)
@@ -292,6 +294,69 @@ def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
         f"Power Limit Margin of '{BAT}' in case '{case.name}' must be at least 0 and at most "
         f"100 % — got {margin:g}."]
     result = simulate(proj, case.id)
+    assert result.status == "failed"
+    assert [m.text for m in result.messages] == [f"Not run: {blockers[0].text} [NEW-LIMITS]"]
+
+
+def test_a_motor_commanded_at_standstill_draws_its_loss_map_there():
+    """A motor held still by its wheels' brakes and commanded 5 % runs its
+    inverter and draws what its loss map says at 0 1/min and that torque
+    (the map's own value: the default's 0.1 kW at 0 N·m grows with the
+    torque); with no command it draws nothing (above)."""
+    from helpers import conn, dbc, el
+    from test_source_limits import _constant_demand_axle
+
+    from app.library import library_by_id
+    from app.solver.maps import interp2, parse_table2d
+
+    proj = _constant_demand_axle([el("batt", "battery.generic", "Battery", initial_soc_pct=50)],
+                                 [conn(1, "batt", "pos", "bus", "t1")], 0.05)
+    proj.systems[0].elements += [el("brl", "mech.brake", "Brake L", max_torque_Nm=5000),
+                                 el("brr", "mech.brake", "Brake R", max_torque_Nm=5000),
+                                 el("hold", "signal.constant", "Hold", value=1.0)]
+    proj.systems[0].connections += [conn(20, "whl", "shaft", "brl", "flange"),
+                                    conn(21, "whr", "shaft", "brr", "flange")]
+    proj.dataBusConnections += [dbc(20, "hold", "sig_out", "brl", "sig_demand_in"),
+                                dbc(21, "hold", "sig_out", "brr", "sig_demand_in")]
+    proj.cases[0].duration, proj.cases[0].timeStep = 5.0, 0.1
+    result = simulate(proj, "case")
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
-    peak = _rows(result)[f"{BAT} — peak terminal power"].value
-    assert peak == (pytest.approx(0.0, abs=1e-6) if margin > 100 else pytest.approx(40.0, rel=1e-3))
+    defaults = {p.key: p.default for p in library_by_id()["motor.emotor"].parameters}
+    full, loss = parse_table2d(defaults["full_load_torque"]), parse_table2d(defaults["power_loss"])
+    rpm = _values(result, "mot", "sig_speed")
+    volts = _values(result, "batt", "sig_voltage")
+    power = _values(result, "mot", "sig_elec_power")
+    torque = _values(result, "mot", "sig_torque")
+    for k in range(1, len(rpm)):
+        assert abs(rpm[k]) < 0.01  # (held by the brakes, its rotor creeps at 0.0015 1/min)
+        assert torque[k] == pytest.approx(0.05 * interp2(full, volts[k], abs(rpm[k])), rel=1e-4)
+        shaft = torque[k] * rpm[k] * math.pi / 30.0 / 1000.0
+        assert power[k] == pytest.approx(shaft + interp2(loss, abs(rpm[k]), abs(torque[k])), rel=1e-6)
+        assert power[k] > 0.1
+
+
+def test_a_cycle_starts_as_it_stops_with_no_standstill_loss():
+    """A car standing at its target from the start: its Driver's command is
+    round-off (a few 1e-12 from the start's first microseconds), which kept
+    the E-Motor's inverter on, drawing its standstill loss, through the
+    whole stand at the start of every cycle, where at a stop mid-cycle the command is
+    exactly 0 and the inverter off. Now the start is as a stop: the motor
+    draws nothing and holds no torque, and the battery keeps its charge."""
+    from test_source_limits import _with_brakes
+
+    proj = _with_brakes(_car("0:0; 5:0; 10:30; 18:30; 23:0; 35:0", 35.0, 0.1))
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    t = [p["t"] for p in series(result, "mot", "sig_elec_power")]
+    power = _values(result, "mot", "sig_elec_power")
+    torque = _values(result, "mot", "sig_torque")
+    speed = _values(result, "veh", "sig_speed")
+    soc = _values(result, "batt", "sig_soc")
+    start = [k for k, x in enumerate(t) if 0.0 < x < 5.0]
+    stop = [k for k, x in enumerate(t) if 30.0 <= x <= 35.0]
+    assert start and stop and all(abs(speed[k]) < 1e-6 for k in start + stop)
+    for k in start + stop:
+        assert power[k] == 0.0 and abs(torque[k]) < 1e-9, (t[k], power[k], torque[k])
+    # (to the start's first microseconds, before its command settles: 1e-9 %)
+    assert soc[start[-1]] == pytest.approx(soc[0], abs=1e-6)
+

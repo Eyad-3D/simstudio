@@ -8,11 +8,6 @@ import { importProject } from "./ui-helpers";
 const LAP = "0:30; 200:30; 300:90; 600:90; 700:40; 800:40; 900:70; 1100:70; 1200:30";
 
 test("ENG-34: a case over distance ends after its laps", async ({ page }) => {
-  test.fail(
-    true,
-    "On the new engine this run ends with a warning (\"Charging exceeds max charge power of 'HV Battery Pack'\") " +
-      "where today's engine succeeds: a difference no class explains, open",
-  );
   const n = Date.now() % 100000;
   const id = `e2e-eng34-${n}`;
   await openApp(page);
@@ -41,7 +36,8 @@ test("ENG-34: a case over distance ends after its laps", async ({ page }) => {
   await laps.fill("2");
 
   await runActiveCase(page);
-  await expect(page.getByText("success").first()).toBeVisible({ timeout: 60_000 });
+  // (the run's status in the Results table: a run opens no Messages panel)
+  await expect(page.getByText(/^success$/).first()).toBeVisible({ timeout: 60_000 });
   // the stored run drove two 1,200 m laps and stopped there
   await expect
     .poll(async () => {

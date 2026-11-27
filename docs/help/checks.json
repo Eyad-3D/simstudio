@@ -540,7 +540,7 @@
   },
   {
    "page": "examples/bev-car.md",
-   "text": "23.76 to 19.73 kWh/100 km, 17 % less",
+   "text": "23.76 to 19.72 kWh/100 km, 17 % less",
    "expr": "(v('bev-wltc-winter', 'Consumption'), v('bev-wltc-winter-hp', 'Consumption'), 100 * (1 - v('bev-wltc-winter-hp', 'Consumption') / v('bev-wltc-winter', 'Consumption')))",
    "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.0f} % less"
   },
@@ -839,7 +839,7 @@
   },
   {
    "page": "examples/aero-bev.md",
-   "text": "| *EPA city (UDDS)* | 9.52 kWh/100 km | 11.07 kWh/100 km | 189.2 |",
+   "text": "| *EPA city (UDDS)* | 9.52 kWh/100 km | 11.07 kWh/100 km | 189.3 |",
    "expr": "(v('aero-udds', 'Consumption'), v('aero-udds', 'Consumption at the socket (AC)'), v('aero-udds', 'Fuel-economy equivalent (MPGe, AC)'))",
    "format": "| *EPA city (UDDS)* | {0[0]:.2f} kWh/100 km | {0[1]:.2f} kWh/100 km | {0[2]:.1f} |"
   },
@@ -851,7 +851,7 @@
   },
   {
    "page": "examples/aero-bev.md",
-   "text": "| *WLTC Class 3b* | 11.79 kWh/100 km | 13.71 kWh/100 km | 152.8 |",
+   "text": "| *WLTC Class 3b* | 11.79 kWh/100 km | 13.70 kWh/100 km | 152.8 |",
    "expr": "(v('aero-wltc', 'Consumption'), v('aero-wltc', 'Consumption at the socket (AC)'), v('aero-wltc', 'Fuel-economy equivalent (MPGe, AC)'))",
    "format": "| *WLTC Class 3b* | {0[0]:.2f} kWh/100 km | {0[1]:.2f} kWh/100 km | {0[2]:.1f} |"
   },
@@ -875,13 +875,13 @@
   },
   {
    "page": "examples/aero-bev.md",
-   "text": "From 542.2 to 309.9 km",
+   "text": "From 542.4 to 310.0 km",
    "expr": "(v('aero-udds', 'Range at this consumption'), v('aero-udds-heat', 'Range at this consumption'))",
    "format": "From {0[0]:.1f} to {0[1]:.1f} km"
   },
   {
    "page": "examples/aero-bev.md",
-   "text": "9.52 to 16.66 kWh/100 km",
+   "text": "9.52 to 16.65 kWh/100 km",
    "expr": "(v('aero-udds', 'Consumption'), v('aero-udds-heat', 'Consumption'))",
    "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km"
   }

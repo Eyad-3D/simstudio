@@ -290,20 +290,23 @@ def test_a_live_edit_keeps_a_cell_packs_voltage():
     assert _summary(edited)["Time to 75 m"] == pytest.approx(_summary(plain)["Time to 75 m"])
 
 
-def test_a_live_edit_of_the_cell_voltage_curve_applies():
-    flat = {"0": 3.5, "100": 3.5}
-    r = _live_edit(bench(5.0, duration=10.0, series_cells=96, parallel_cells=2,
-                         initial_soc_pct=80), "case",
-                   [{"type": "set_param", "elementId": "batt", "key": "cell_ocv_table",
-                     "value": flat},
-                    {"type": "set_param", "elementId": "batt", "key": "ocv_table",
-                     "value": {"0": 100, "100": 100}}])
+def test_a_live_edit_of_the_cell_voltage_curve_takes_effect_on_the_next_run():
+    """A live edit of a table takes effect on the next run on the new engine,
+    with its note, each table's (the lead's choice)."""
+    from helpers import paced_edit
+
+    r = paced_edit(bench(5.0, duration=10.0, series_cells=96, parallel_cells=2, initial_soc_pct=80),
+                   "case", [{"type": "set_param", "elementId": "batt", "key": "cell_ocv_table",
+                             "value": {"0": 3.5, "100": 3.5}},
+                            {"type": "set_param", "elementId": "batt", "key": "ocv_table",
+                             "value": {"0": 100, "100": 100}}], at_t=2.0)
+    assert any("cell_ocv_table' changed" in m.text and "[NEW-LIVE-NEXT-RUN]" in m.text
+               for m in r.messages), [m.text for m in r.messages]
     v = series(r, "batt", "sig_voltage")
-    # the default curve at 80 % (3.98 V a cell) less R0's drop at the load
-    # (about 12 V: the first point carries the load's current)
-    assert v[0]["value"] > 96 * 3.8
-    assert 96 * 3.5 - 20 < v[-1]["value"] < 96 * 3.5  # the cells' new one, less the drop
-    assert any("not used by a battery built from cells" in m.text for m in r.messages)
+    # the default curve at 80 % (3.98 V a cell) less R0's drop, to the end
+    assert v[0]["value"] > 96 * 3.8 and v[-1]["value"] > 96 * 3.8 - 20
+    assert any("ocv_table' changed" in m.text and "[NEW-LIVE-NEXT-RUN]" in m.text
+               and "cell_ocv_table" not in m.text for m in r.messages)
 
 
 def test_quick_mode_runs_a_pack_built_from_cells():

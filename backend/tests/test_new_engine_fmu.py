@@ -197,7 +197,8 @@ def test_a_misbehaving_fmu_fails_the_run_with_the_workers_words(test_fmu, mode, 
     result = simulate(_lag_project(params, 1.0, 0.01, 1.0), "case")
     assert result.status == "failed"
     text = " ".join(m.text for m in result.messages)
-    assert "[NEW-FAILED]" in text and what in text and "Lag" in text, text
+    assert text.startswith(f"Not run: Sampled block Lag failed at t = 0.51 s: FMU 'Lag' {what}"), text
+    assert text.endswith("[NEW-FAILED: RUN-BLOCK]") and "FmuError" not in text, text
     assert not set(multiprocessing.active_children()) - before
 
 
@@ -405,14 +406,12 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
 # the text below (the same on Windows CI and on Linux), so any other failure
 # of these FMUs, a value difference or another refusal, still fails the test.
 KNOWN_FMU_FAILURES = {  # which: (text its failure's message holds, the known issue)
-    "2.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
-                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
-                  "t = 8.8 s: fmi2DoStep failed with status 2 (discard).)",
+    "2.0/Stair": ("Not run: Sampled block Stair failed at t = 9 s: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: fmi2DoStep failed with status 2 (discard). [NEW-FAILED: RUN-BLOCK]",
                   "known issue: the FMU's fmi2DoStep returns discard at t = 8.8 s, "
                   "and the new path stops the run with RUN-BLOCK"),
-    "3.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
-                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
-                  "t = 8.8 s: the FMU asked to stop the simulation)",
+    "3.0/Stair": ("Not run: Sampled block Stair failed at t = 9 s: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: the FMU asked to stop the simulation. [NEW-FAILED: RUN-BLOCK]",
                   "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
                   "and the new path stops the run with RUN-BLOCK"),
 }
@@ -431,7 +430,7 @@ def test_only_a_known_fmu_failures_own_message_is_expected():
     message: another failure of the same FMU, or the same text for another
     FMU, is not one."""
     for which, (text, _) in KNOWN_FMU_FAILURES.items():
-        assert is_known_failure(which, f"Not run [NEW-FAILED]: {text}; more")
+        assert is_known_failure(which, f"Not run: {text}; more. [NEW-FAILED: FMU-X]")
         assert not is_known_failure(which, "values differ from fmusim")
         assert not is_known_failure(which, text[:-2])
     assert not is_known_failure("2.0/Dahlquist", KNOWN_FMU_FAILURES["2.0/Stair"][0])

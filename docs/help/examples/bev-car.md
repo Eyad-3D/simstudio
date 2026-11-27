@@ -126,7 +126,7 @@ back afterwards, or close the copy without saving.
    Climate Control's *Heat Source* from *PTC heater* to *Heat pump*. How
    much energy does it save?
 
-   **Answer:** 23.76 to 19.73 kWh/100 km, 17 % less. At −7 °C the heat
+   **Answer:** 23.76 to 19.72 kWh/100 km, 17 % less. At −7 °C the heat
    pump moves about 1.9 kW of heat for each kW of electricity it uses, so
    the cabin's 4.05 kW of heat takes about 2.2 kW instead of 4.05 (plus
    the blower's 0.2 kW either way).

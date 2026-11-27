@@ -3,7 +3,7 @@
 "tunable" ones apply silently.
 """
 import pytest
-from helpers import bev_axle
+from helpers import bev_axle, series
 
 from app.solver import simulate
 
@@ -76,49 +76,31 @@ def _geared_car(gear_expr: str, profile: str = "0:0; 60:110", initial_kmh: float
     return project(elements, connections, databus, duration=45, time_step=0.5)
 
 
-def _spy_shifts(monkeypatch) -> list[float]:
-    """Times of the 'reconfigured' events (driveline rebuilds for a shift)."""
-    from app.solver import domains
-
-    times: list[float] = []
-    real = domains.GearSlave.do_step
-
-    def spy(self, t, h):
-        result = real(self, t, h)
-        if result.events:
-            times.append(t)
-        return result
-    monkeypatch.setattr(domains.GearSlave, "do_step", spy)
-    return times
-
-
 def test_live_edit_survives_two_gear_shifts(monkeypatch):
     """bench/exp_live.py: grip cut to 0.1 during the run held the tire force
     at 0.1 × load until the first shift, which rebuilt the driveline from the
     saved project and put the grip back to 1.0. A structural edit sent with
-    it must stay deferred through the shifts."""
-    from helpers import series
+    it must stay deferred through the shifts. (The shifts are read from the
+    gearbox's gear: the new engine shifts without rebuilding anything.)"""
+    from helpers import paced_edit, series
 
-    shifts = _spy_shifts(monkeypatch)
     proj = _geared_car("1 if t < 6 else (2 if t < 14 else 3)", profile="0:0; 10:100; 60:100")
     proj.cases[0].duration = 25
-    calls = {"n": 0}
-
-    def control():
-        calls["n"] += 1
-        if calls["n"] == 3:  # at t = 1 s
-            return [{"type": "set_param", "elementId": w, "key": "mu", "value": 0.1}
-                    for w in ("whl", "whr")] + [
-                {"type": "set_param", "elementId": "fd", "key": "ratio", "value": 2.0}]
-        return []
-
-    result = simulate(proj, "case", control=control)
+    result = paced_edit(proj, "case", [{"type": "set_param", "elementId": w, "key": "mu", "value": 0.1}
+                                       for w in ("whl", "whr")] + [
+        {"type": "set_param", "elementId": "fd", "key": "ratio", "value": 2.0}], at_t=1.0)
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
-    assert [round(t, 2) for t in shifts] == [6.0, 14.0], shifts  # and none at t = 0
+    gear = [(p["t"], p["value"]) for p in series(result, "gb", "sig_gear")]
+    shifts = [t for (_, g0), (t, g) in zip(gear, gear[1:]) if g != g0]
+    assert gear[0][1] == 1 and [round(t, 2) for t in shifts] == [6.0, 14.0], shifts  # and none at t = 0
 
     limit = 0.1 * 0.5 * 1800 * 9.81  # grip × load on one wheel
     force = [(p["t"], abs(p["value"])) for p in series(result, "whl", "sig_force")]
-    for lo, hi in ((2, 6), (6.5, 14), (14.5, 25)):  # before, between and after the shifts
+    # sent once the view reached 1 s, the edit takes effect where the engine
+    # (ahead of the view) reads it: before the first shift
+    cut = next(t for t, f in force if t >= 1 and f <= limit + 1e-6)
+    assert cut <= 5, cut
+    for lo, hi in ((cut, 6), (6.5, 14), (14.5, 25)):  # before, between and after the shifts
         peak = max(f for t, f in force if lo <= t <= hi)
         assert limit * 0.9 < peak <= limit + 1e-6, (lo, hi, peak, limit)
 
@@ -133,10 +115,10 @@ def test_the_first_gear_sample_is_the_starting_gear(monkeypatch):
     solver rebuilt the driveline at t = 0 with its speeds zeroed, so the
     wheels dropped from 402 to 17 1/min and the tires braked the car at
     their grip limit. Neither a gear equal to the default nor another one
-    may cost a rebuild event at t = 0."""
+    may cost a rebuild event at t = 0. (On the new engine: the gear is the
+    script's from the first point on.)"""
     from helpers import series
 
-    shifts = _spy_shifts(monkeypatch)
     for gear in ("2", "3"):  # the gearbox's default gear, and another one
         proj = _geared_car(gear, profile="0:50; 5:50", initial_kmh=50)
         proj.cases[0].duration, proj.cases[0].timeStep = 1.0, 0.01
@@ -144,13 +126,16 @@ def test_the_first_gear_sample_is_the_starting_gear(monkeypatch):
         wheel_rpm = 50 / 3.6 / 0.33 * 60 / (2 * 3.141592653589793)
         speeds = [p["value"] for p in series(result, "whl", "sig_speed")][:5]
         assert min(speeds) > 0.9 * wheel_rpm, (gear, speeds)
-    assert shifts == []
+        assert {p["value"] for p in series(result, "gb", "sig_gear")} == {int(gear)}, gear
 
 
 def test_drivelines_shift_in_the_same_step():
     """Two e-axles with their own two-speed gearbox on one gear signal: both
-    change ratio at the same solver step (before, the second one a step
-    later)."""
+    change ratio at the same instant (before, the second one a step later).
+    The Shifter's tick at 0.5 s makes gear 2 there; a point at an event
+    shows the values just after it (the older engine's tick took effect a
+    step later), so the ratio is 3.0 up to 0.49 s and 1.5 from 0.5 s, the
+    same on both axles at every point."""
     from helpers import conn, dbc, el, project, series, sig_port
 
     from app.schemas import ElementInstance
@@ -175,18 +160,30 @@ def test_drivelines_shift_in_the_same_step():
         databus.append(dbc(40 + i, "shift", "gear", f"gb{ax}", "sig_gear_in"))
     proj = project(elements, connections, databus, duration=1.0, time_step=0.01)
     result = simulate(proj, "case")
+    ratios = {}
     for ax in ("f", "r"):
         mot = {round(p["t"], 2): p["value"] for p in series(result, f"mot{ax}", "sig_speed")}
         whl = {round(p["t"], 2): p["value"] for p in series(result, f"w{ax}", "sig_speed")}
-        assert mot[0.5] / whl[0.5] == pytest.approx(3.0, rel=0.01), ax
-        assert mot[0.51] / whl[0.51] == pytest.approx(1.5, rel=0.01), ax
+        ratios[ax] = {t: mot[t] / whl[t] for t in mot if whl[t] > 0}
+        assert ratios[ax][0.49] == pytest.approx(3.0, rel=0.01), ax
+        assert ratios[ax][0.51] == pytest.approx(1.5, rel=0.01), ax
+    for t, x in ratios["f"].items():  # the same ratio on both axles at every point
+        assert x == pytest.approx(ratios["r"][t], rel=1e-6), t
 
 
 def test_the_result_lists_the_live_edits_it_made():
-    """Today's engine lists each live edit it applied, at the simulated time
-    the run had reached when it applied it (here before its first step), and
-    not one it deferred; the result says it ran on today's engine."""
+    """The result lists each live edit the run made, at the simulated time
+    the run had reached when it made it: one already there before the first
+    step is made at t = 0, and the run is the run with that value from the
+    start; one it deferred is not listed as made (its note says why)."""
     applied = _run_with_edit("drv", "driver_kp", 0.5)
-    assert [(e.t, e.elementId, e.key, e.value) for e in applied.liveEdits] == [(0.0, "drv", "driver_kp", 0.5)]
-    assert applied.engine == "today" and applied.solverOptions["timeStep"] > 0
-    assert _run_with_edit("fd", "ratio", 5.0).liveEdits == []
+    assert [(e.t, e.elementId, e.key, e.value, e.note) for e in applied.liveEdits] == [
+        (0.0, "drv", "driver_kp", 0.5, None)]
+    proj = bev_axle(profile="0:0; 5:60; 10:60")
+    proj.cases[0].duration = 10
+    proj.cases[0].parameterOverrides = {"drv": {"driver_kp": 0.5}}
+    typed = simulate(proj, "case")
+    for a, b in zip(series(applied, "veh", "sig_speed"), series(typed, "veh", "sig_speed")):
+        assert a["value"] == pytest.approx(b["value"], abs=1e-9), a["t"]
+    deferred = _run_with_edit("fd", "ratio", 5.0).liveEdits
+    assert all(e.note and "next run" in e.note for e in deferred), deferred

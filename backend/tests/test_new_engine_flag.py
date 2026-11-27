@@ -369,7 +369,7 @@ def test_a_failure_of_the_path_fails_the_case(monkeypatch):
     monkeypatch.setattr(new_engine, "run_new", broken)
     result = simulate(load_example("bev-car"), WLTC)
     assert result.status == "failed" and not result.channels
-    assert result.messages[0].text.startswith("Not run [NEW-ERROR]: ")
+    assert (result.messages[0].text.startswith("Not run: ") and "[NEW-ERROR" in result.messages[0].text)
 
 
 def test_without_the_module_a_case_fails_with_its_code(monkeypatch):
@@ -385,7 +385,7 @@ def test_without_the_module_a_case_fails_with_its_code(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", refuse)
     result = simulate(load_example("fs-electric"), "case-accel-75m")
     assert result.status == "failed" and not result.channels
-    assert result.messages[0].text.startswith("Not run [NEW-MISSING]: ")
+    assert (result.messages[0].text.startswith("Not run: ") and "[NEW-MISSING" in result.messages[0].text)
     assert "not installed" in result.messages[0].text and "install LightSim again" in result.messages[0].text
 
 
@@ -405,5 +405,5 @@ def test_a_failing_new_engine_fails_the_case(monkeypatch):
     monkeypatch.setattr(lightsim_engine, "build", broken)
     result = simulate(load_example("bev-car"), WLTC)
     assert result.status == "failed" and not result.channels
-    assert result.messages[0].text.startswith("Not run [NEW-FAILED]: ")
+    assert (result.messages[0].text.startswith("Not run: ") and "[NEW-FAILED" in result.messages[0].text)
     assert "RUN-INTEGRATOR" in result.messages[0].text

@@ -21,14 +21,22 @@ shaft and J the *Rotor Inertia* (kg·m²) × *Torque Scale*.
 
 ### Electrical power
 
-The inverter runs when the command is not exactly 0, U is above 1 V and
-|ω| is at most ω_max. It then draws
+The inverter runs when the command is not 0 (near standstill, below about
+1 1/min, more than 10⁻⁹ either way: less is rounding), U is above 1 V and
+|ω| is at most ω_max. Driven above ω_max, it is off until |ω| is 0.1 %
+below ω_max again, where the taper gives it 5 % of T_fl (on again at ω_max
+itself, the drag it takes away would lift a light driveline straight back
+over). It then draws
 
 P_el = T·ω + P_loss(|ω|, |T|)
 
 where P_loss is the *Power Loss (Motor + Inverter)* map. P_el is negative
 while the motor recuperates: power goes back to the bus. The current is
 I = P_el ÷ U.
+
+A motor standing with no command has its inverter off and draws nothing,
+at the start of a cycle as at every stop; commanded while it stands (held
+by brakes, say), it draws the loss map's value at 0 1/min and that torque.
 
 With the inverter off, it draws nothing and the *Drag Torque (unpowered)*
 at |ω| acts against the motion. Below 0.1 rad/s (about 1 1/min) the drag

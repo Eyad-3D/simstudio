@@ -81,7 +81,8 @@ could be one solver step ahead of the new engine's.) With a Communication
 Step of 0 it exchanges every 10 ms. An FMU's start values and its
 Communication Step changed while a run goes take effect on the next run.
 Quick mode does not run a model with an FMU: such a case fails with
-`Not run [QUICK-SAMPLED]`; set the case's mode to full.
+*Not run in quick mode* and the code `QUICK-SAMPLED`; set the case's mode to
+full.
 
 ## When something goes wrong
 

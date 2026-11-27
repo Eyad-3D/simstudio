@@ -16,26 +16,22 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 
 ### What else the new engine refuses or stops
 
-- **A value outside its parameter's limits, typed in the case, is refused** (`NEW-LIMITS`).
-- **A part connected to nothing can fail where the older engine left it
-  out.** The older engine builds no part with nothing connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives nothing, a Climate Control on nothing) and runs the rest, with a warning from Data Checks.
-- **A table set to Error stops the run in the engine's own words.** The message names the table by its internal name and the time, not in the older words, and a run it stops gives no partial result with its figures marked not valid.
-- **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, and an early message that the car does not move.
+- **A value outside its parameter's limits is refused** (`NEW-LIMITS`).
+- **One count the older engine kept is missing** : how many tables a run read past their data (each such table still has its own rows).
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
-  yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), an idle car's final SOC (89.9991 % against 90 %), the slip Traction Control holds…
-- **A machine driven to its maximum speed can stop a run by switching
-  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its gears x3), where the older engine warned or finished; and a motor driven past its maximum speed in a top-speed test stops on its …
+  yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), the slip Traction Control holds after the launch ramp (0.359 against under 0.3), …
+- **An Engine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`), where the older engine warned or finished.
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning rotor, the motor takes what the supply gives, and the rest of those losses brakes the shaft (as its *Drag Torque* does with the inverter off).
-- **A battery driven to its limits and an empty battery's consumers can
-  fail where the battery reaches its limit** (`RUN-INIT` at about 2.2 s): the new engine cannot start again from the state these cases reach.
 - **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
-- **The reference suite's coast-down model is a loop the engine cannot solve
-  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so the validation page's coast-down rows are not re-measured on the new engine (see What is validated).
-- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`** , even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
-- **A table edited during a live run takes effect on the next run** , and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
-- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one is 27 bytes over).
+- **A shaft whose parts together have no inertia is refused by Data
+  Checks** , naming its parts: the new engine cannot work out how fast it turns (`SINGULAR-LOOP`), where the older engine lumped every inertia together.
+- **A run the engine's integrator stops part-way fails with *Not run* and
+  `NEW-FAILED`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
+- **A table or a Driving Task's profile edited during a live run takes
+  effect on the next run** (the engine builds them into the model as data), with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
 
 ## Results that can be wrong today
 
@@ -122,9 +118,9 @@ Point 0 of every run is the initial state at t = 0.
 - **A run the new engine cannot follow can take minutes to be refused, or
   not end.** A run has no time limit unless the caller gives one (the app gives none; the Python module's `time_limit=` does, and its `memory_limit=` is 4 GB when not given, counting the recorded results and the events, not everything the run holds).
 - **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine runs a PID block, and a Lookup block with a Sample Time over 10 ms, at the instants the older engine did: every 10 ms step while the Sample Time is within it, otherwise the first step at or after each multiple of the Sample Time, holding the output…
-- **A machine driven to its maximum speed can stop the run.** A motor or engine driven above its maximum speed by something else (a downhill grade, an engine or another motor on its shaft) is not a case of the table stopping the run: the engine reads the motor's full-load and loss maps at its speed held to the maximum (…
+- **A machine driven to its maximum speed.** A motor or engine driven above its maximum speed by something else (a downhill grade, an engine or another motor on its shaft) is not a case of the table stopping the run: the engine reads the motor's full-load and loss maps at its speed held to the maximum (…
 - **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0 follows the cycle (on the BEV, within 1.6 km/h), where the older engine lagged it by about 17 km/h and warned.
-- **A value outside its limits is refused.** A study's point can hold a value that Data Checks would refuse for a single run (a negative pressure, a CG height below 0, a wheel's load share of 0), and so can a case's own Ambient or Vehicle value: the older engine read many such values clamped, the new en…
+- **A value outside its limits is refused.** A study's point can hold a value that Data Checks would refuse for a single run (a negative pressure, a CG height below 0, a wheel's load share of 0): the older engine read many such values clamped, the new engine refuses the run with the code `NEW-LIMITS` an…
 - **Fuel energy is a heating value you set.** The fuel's energy is the fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by default; background knowledge, not checked against a source; a model without a Fuel Tank uses that default), and hydrogen's is 119.96 MJ/kg (33.3 kWh/kg).
 - **A wheel's In and Out count both ways.** A wheel's *In* is what its axle gave it while driving and what the car gave it while braking, its *Out* the same the other way, so a wheel that drove and braked shows more than either; its *Lost* (the tyre's slip) is what it lost in both.
 - **A motor's current is its DC current.** The *Duty* view's *DC current* is the motor's electrical power over its bus voltage; the current in the motor's windings (phase current), which sets the inverter's sizing, is not modelled.

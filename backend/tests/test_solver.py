@@ -148,21 +148,21 @@ def test_profiles_are_parsed_once_per_run(monkeypatch):
     assert len(calls) == 2, f"parsed {len(calls)} times"
 
 
-def test_live_profile_edit_takes_effect():
+def test_a_live_profile_edit_takes_effect_on_the_next_run():
+    """A Driving Task's profile is data the new engine builds into the model,
+    not a value it changes during a run: a live edit of it takes effect on
+    the next run, listed with its note (before: listed as made, and not)."""
+    from helpers import paced_edit
+
     proj = bev_axle(profile="0:0; 5:60; 10:60")
     proj.cases[0].duration = 10
-    sent = {"n": 0}
-
-    def control():
-        sent["n"] += 1
-        if sent["n"] == 3:  # a few recorded steps in
-            return [{"type": "set_param", "elementId": "task", "key": "profile",
-                     "value": "0:30; 10:30"}]
-        return []
-
-    result = simulate(proj, "case", control=control)
+    result = paced_edit(proj, "case", [{"type": "set_param", "elementId": "task", "key": "profile",
+                                        "value": "0:30; 10:30"}], at_t=2.0)
+    [edit] = result.liveEdits
+    assert edit.key == "profile" and edit.note and "next run" in edit.note and "[NEW-LIVE-NEXT-RUN]" in edit.note
+    assert any(edit.note == m.text for m in result.messages)
     demand = series(result, "task", "sig_demand")
-    assert demand[-1]["value"] == pytest.approx(30.0)
+    assert demand[-1]["value"] == pytest.approx(60.0)  # the run's own profile
 
 
 # ---- recording controls (outputEvery + smaller step) -------------------------

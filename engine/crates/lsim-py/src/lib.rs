@@ -157,7 +157,16 @@ impl PyScriptHost {
     fn call(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
         let kind = self.kind;
         Python::attach(|py| {
-            let fail = |e: PyErr| format!("{kind} '{}' failed at t = {t} s: {e}", self.name);
+            // an error that names the block says it all in its own words
+            // (an FMU worker's "FMU 'Lag' crashed at t = 0.5 s (...)")
+            let fail = |e: PyErr| {
+                let said = e.value(py).to_string();
+                if said.contains(&format!("'{}'", self.name)) {
+                    said
+                } else {
+                    format!("{kind} '{}' failed at t = {t} s: {e}", self.name)
+                }
+            };
             let ins = PyDict::new(py);
             for (k, v) in self.inputs.iter().zip(inputs) {
                 ins.set_item(k, *v).map_err(fail)?;
