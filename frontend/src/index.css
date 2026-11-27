@@ -490,15 +490,15 @@ body,
   overflow-wrap: anywhere;
 }
 /* a choice box is as wide as its longest choice (ParameterInput sets
-   --ss-option-ch), so a choice is never cut ("Limited-slip", not "Limitec");
-   in the narrow Properties panel a very long one ("Drag and rolling
-   resistance") stops at 14 characters, so the names keep their room: its
-   full text is in its tooltip and its open list, and in the part's window */
+   --ss-option-ch), so a choice is never cut ("Limited-slip", not "Limitec").
+   In the docked Properties panel it stays as wide as a number field and
+   leaves the rest to the names (GUI-34): its full text is in its tooltip and
+   its open list, and whole in the part's window */
 .ss-param-grid select {
   width: calc(var(--ss-option-ch, 8) * 1ch + 32px);
 }
 [data-properties-panel] .ss-param-grid select {
-  max-width: calc(14ch + 32px);
+  width: 5.5rem;
 }
 /* a parameter's help card (UX-10): a popover in the top layer, so no panel
    clips it, beside the row it explains (left of it, or where there is room) */

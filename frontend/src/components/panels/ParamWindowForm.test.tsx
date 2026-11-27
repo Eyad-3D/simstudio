@@ -9,6 +9,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { ComponentDef, ElementInstance, Project } from "../../types";
 import { ElementForm } from "./PropertiesPanel";
+import css from "../../index.css?raw";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 Element.prototype.scrollIntoView = () => {};
@@ -291,6 +292,21 @@ test("a parameter's and a port's name are never cut to one line (#26)", () => {
   const ports = [...host.querySelectorAll(".ss-param-name")].map((s) => s.textContent);
   expect(ports).toContain("Positive Terminal (+)");
   expect(host.querySelector('[title="Positive Terminal (+)"]')?.className).not.toMatch(/truncate/);
+});
+
+test("the docked panel keeps names, ports and choice boxes to one line (GUI-34); only the window shows them whole (#26, #16)", () => {
+  onePart("motor.emotor", "E-Motor");
+  host = document.body.appendChild(document.createElement("div"));
+  host.setAttribute("data-properties-panel", "");
+  root = createRoot(host);
+  act(() => root.render(<ElementForm element={el("x")} def={libraryById["motor.emotor"]} compact />));
+  const name = host.querySelector('tr[data-param="max_speed_rpm"] td span')!;
+  expect(name.textContent).toBe("Maximum Speed (0 = full-load curve's last point)");
+  expect(name.className).toMatch(/\btruncate\b/);
+  const port = host.querySelector('[title="Positive Terminal (+)"]')!;
+  expect(port.className).toMatch(/\btruncate\b/);
+  // a choice box there is as wide as a number field, whatever its longest choice
+  expect(/\[data-properties-panel\] \.ss-param-grid select \{\s*width: 5\.5rem;/.test(css)).toBe(true);
 });
 
 const button = (name: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === name);

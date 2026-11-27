@@ -1,6 +1,7 @@
 // Layout fixes found by using the app (app-pass report): a value's help card
 // never lies over its row's error (#12), a choice box shows its whole choice
-// (#16), and Properties at 1366 wide shows a parameter's whole name (#26).
+// (#16), and a parameter's whole name shows in its part's window (#26;
+// the docked panel keeps one line, GUI-34).
 import { expect, test, type Locator } from "@playwright/test";
 import { openApp, openParams, selectElement } from "./app";
 
@@ -47,15 +48,18 @@ test("#16: a choice box is wide enough for its longest choice", async ({ page })
 test.describe("at 1366 x 768", () => {
   test.use({ viewport: { width: 1366, height: 768 } });
 
-  test("#26: Properties shows a parameter's whole name, so its value cannot mislead", async ({ page }) => {
+  test("#26: the docked panel keeps a name on one line (GUI-34); the part's window shows it whole", async ({ page }) => {
     await openApp(page);
     await selectElement(page, "E-Motor");
-    const name = page.locator('[data-properties-panel] tr[data-param="max_speed_rpm"] td').first().locator("span").first();
-    await expect(name).toHaveText("Maximum Speed (0 = full-load curve's last point)");
-    // all of it on screen: wrapped, not cut
-    expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-    // a port's name is readable in full, or on hover
+    // docked: one line, cut with "…", the whole name in the help card or on hover
+    const docked = page.locator('[data-properties-panel] tr[data-param="max_speed_rpm"] td').first().locator("span").first();
+    await expect(docked).toHaveText("Maximum Speed (0 = full-load curve's last point)");
+    expect(await docked.evaluate((el) => el.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(el).lineHeight))).toBe(true);
     const port = page.locator("[data-properties-panel]").getByTitle("Positive Terminal (+)");
     await expect(port).toHaveText("Positive Terminal (+)");
+    // the window, which has the room: the whole name, nothing cut
+    const win = await openParams(page, "E-Motor");
+    const whole = win.locator('tr[data-param="max_speed_rpm"] td').first().locator("span").first();
+    expect(await whole.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1)).toBe(true);
   });
 });

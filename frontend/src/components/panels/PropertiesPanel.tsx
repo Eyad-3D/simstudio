@@ -1266,9 +1266,11 @@ export function ElementForm({
         <tr {...helpProps(p)} data-param={p.key}>
           {/* the full label is in the help card, or else its tooltip */}
           <td className="ss-td flex items-center text-meta" title={p.description ? undefined : p.label}>
-            {/* the whole name, on more lines where the panel is narrow: a cut
-                name ("Maximum Spe…" beside a 0) can make its value mislead */}
-            <span className="ss-param-name">{p.label}</span>
+            {/* the docked panel keeps a name on one line, cut with "…" (GUI-34:
+                its rows stay one line high at 1366 x 768), the full name on
+                hover or in the help card; the part's window, which has the
+                room, shows it whole on as many lines as it needs (#26) */}
+            <span className={compact ? "truncate" : "ss-param-name"}>{p.label}</span>
             <SourceBadge src={element.parameterSources?.[p.key]} />
             {running && p.variability === "fixed" && (
               <span
@@ -1637,17 +1639,18 @@ export function ElementForm({
             Ports
           </div>
           {partDef(element, def).ports.map((p) => (
-            // the name in full; its kind and direction beside it, or on a line
-            // of their own where the panel is narrow
-            <div key={p.id} className="flex flex-wrap items-center gap-x-2 py-0.5 text-meta">
+            // the docked panel: one line, the name cut with "…" and whole on
+            // hover (GUI-34); the window: the name in full, its kind and
+            // direction beside it or on a line of their own (#26)
+            <div key={p.id} className={`flex items-center py-0.5 text-meta ${compact ? "gap-2" : "flex-wrap gap-x-2"}`}>
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ background: KIND_COLOR[p.kind] }}
               />
-              <span className="ss-param-name" title={p.name}>
+              <span className={compact ? "truncate" : "ss-param-name"} title={p.name}>
                 {p.name}
               </span>
-              <span className="ml-auto whitespace-nowrap pl-4 text-meta text-[color:var(--ss-text-dim)]">
+              <span className={`ml-auto whitespace-nowrap text-meta text-[color:var(--ss-text-dim)] ${compact ? "shrink-0" : "pl-4"}`}>
                 {element.hiddenPorts?.includes(p.id) && (
                   <span title="Not drawn on the diagram: the part's right-click menu shows it again">hidden · </span>
                 )}
