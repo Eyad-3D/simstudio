@@ -466,7 +466,8 @@ sections.
   40 to 80 kW on the 75 m case (4.23 to 3.75 s). The other examples do not
   change.
 - The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
-  200 %. It floats over the diagram's top edge, and the bottom panels open
+  200 %, beside its view buttons; Undo, Redo and Delete are on the ribbon
+  only (and Ctrl+Z, Ctrl+Y, Del and the right-click menu). It floats over the diagram's top edge, and the bottom panels open
   at 22 % of the workspace instead of 30 % (drag their edge for more), so
   on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
   open (was 33 %). LightSim remembers the height of a bottom panel you
