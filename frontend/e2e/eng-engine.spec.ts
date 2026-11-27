@@ -36,7 +36,8 @@ test("ENG-34: a case over distance ends after its laps", async ({ page }) => {
   await laps.fill("2");
 
   await runActiveCase(page);
-  await expect(page.getByText("success").first()).toBeVisible({ timeout: 60_000 });
+  // (the run's status in the Results table: a run opens no Messages panel)
+  await expect(page.getByText(/^success$/).first()).toBeVisible({ timeout: 60_000 });
   // the stored run drove two 1,200 m laps and stopped there
   await expect
     .poll(async () => {
