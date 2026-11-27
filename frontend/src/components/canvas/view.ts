@@ -18,11 +18,9 @@ export function fitPadding(overlayHeight: number) {
  * last automatic fit left (`lastAutoView`) follows the diagram both ways, as
  * when the user opens or closes the bottom panel (GUI-03); a view the user
  * set is fitted again only when the change cut off a model that was entirely
- * in view (`cut`). Never while the view is held (`held`): the first run
- * opens the Signal Plot by itself, and the diagram keeps its zoom and view
- * as the panel opens under it.
+ * in view (`cut`). A run opens no panel, so it never changes the diagram's
+ * size or zoom.
  */
-export function refitAfterResize(cut: boolean, lastAutoView: boolean, held: boolean): boolean {
-  if (held) return false;
+export function refitAfterResize(cut: boolean, lastAutoView: boolean): boolean {
   return cut || lastAutoView;
 }

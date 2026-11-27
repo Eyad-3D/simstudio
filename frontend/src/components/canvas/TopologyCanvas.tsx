@@ -400,7 +400,7 @@ function TopologyCanvasInner() {
 
   // When the diagram changes size (the bottom tray opens or closes, the
   // window is resized), re-fit once the size settles, or not: view.ts
-  // refitAfterResize (the tray the first run opens keeps the zoom).
+  // refitAfterResize. (A run opens no panel, so it never changes the zoom.)
   useEffect(() => {
     let before: { width: number; height: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -423,8 +423,7 @@ function TopologyCanvasInner() {
           (b.y + b.height) * zoom + y <= h;
         // the overview map is shown again only when this change cut the model off
         const cut = inView(was.width, was.height) && !inView(width, height);
-        const held = Date.now() < useUIStore.getState().diagramViewHeldUntil;
-        if (refitAfterResize(cut, transform.join() === autoView.current, held)) autoFit(200, cut);
+        if (refitAfterResize(cut, transform.join() === autoView.current)) autoFit(200, cut);
       }, 150);
     });
     return () => {

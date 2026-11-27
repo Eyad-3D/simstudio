@@ -17,9 +17,9 @@ test("RES-03: the Signal Plot's time axis grows during a 1x paced run", async ({
   await openApp(page);
   await showPanel(page, "Cases & Parameters");
   await page.locator("label", { hasText: "Pacing" }).locator("select").selectOption("1");
+  // a run opens no panel: the Signal Plot is opened from its tab, then run
+  await page.locator(".dv-tab", { hasText: "Signal Plot" }).first().click();
   await runButton(page).click();
-  // the session's first run opens the Signal Plot by itself (a click on its
-  // tab as it opens could fold the tray again)
   await expect(page.locator("select[title='Channel to plot']")).toBeVisible();
 
   // at 1x the solver is a few seconds in after a few seconds

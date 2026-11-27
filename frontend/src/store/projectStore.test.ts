@@ -2555,6 +2555,23 @@ describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
     expect(tab()).toBe("home");
   });
 
+  it("a run, finished or failed, opens no panel: the bottom tray stays as the user left it (choice B)", async () => {
+    await start();
+    useUIStore.getState().setRibbonTab("home");
+    const forward = vi.spyOn(useUIStore.getState(), "focusPanel");
+    useUIStore.setState({ focusPanel: forward as never });
+    engineFinishesRuns();
+    await store().run();
+    engineEnds("failed");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "error", show: "messages" });
+    expect(forward).not.toHaveBeenCalled();
+    // the failure's notice still leads to Messages, when the user asks
+    const { followNotice } = await import("./projectStore");
+    followNotice("show");
+    expect(forward).toHaveBeenCalledWith("messages");
+  });
+
   it("the next run, going to Results and another project put a notice away", async () => {
     await start();
     engineFinishesRuns();

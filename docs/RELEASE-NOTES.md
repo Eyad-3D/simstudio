@@ -1243,10 +1243,13 @@ sections.
   it ended (*finished: success*, *finished with warnings*, *stopped at
   t = …*, *failed*) with **Show results**, or **Show messages** after a
   failure. A sweep's notice says how many points are complete and offers
-  **Study charts**. Tick **Always open Results** in the notice to have the
-  page open by itself after each run and sweep, as before; the choice is
-  kept. A run started on the *Results* page stays there, drawn as it goes,
-  and a failed run no longer leaves that page. (UX-21)
+  **Study charts**. Tick **Open after each run** on the *Results* page,
+  beside **Clear history**, to have the page open by itself after each run
+  and sweep, as before; the choice is kept. A run opens no panel either:
+  the bottom panels stay as you left them, also after a failure, and the
+  *Signal Plot* is a click away in its tab. A run started on the *Results*
+  page stays there, drawn as it goes, and a failed run no longer leaves
+  that page. (UX-21)
 - Results → **Study**: a chart for each chosen result of a saved study
   against the swept value. It reads the study kept with the project's
   runs, so it still draws after the project is opened again and after the

@@ -81,7 +81,7 @@ test.describe("1366x768", () => {
     await expect(page.locator(".dv-tab[aria-label^='Messages'] .dv-default-tab[data-badge]")).toHaveCount(0);
   });
 
-  test("GUI-01: the first run's Signal Plot keeps the diagram's zoom", async ({ page }) => {
+  test("GUI-01: a run leaves the tray as it was and the diagram's zoom", async ({ page }) => {
     await openApp(page);
     expect((await nodeLayout(page)).offscreen).toBe(0);
     const zoom = await zoomOf(page);
@@ -91,9 +91,9 @@ test.describe("1366x768", () => {
     await page.keyboard.press("Control+Enter");
     // the page stays on the model as the run ends (UX-21)
     await expect(finishNotice(page)).toBeVisible({ timeout: 60_000 });
-    // the tray opened on the Signal Plot by itself; the diagram kept its zoom
-    // (it used to re-fit smaller, and the names ran into each other)
-    expect((await trayAndDock(page)).tray).toBeGreaterThanOrEqual(120);
+    // the tray stays folded, as the user left it (the owner's choice B: it
+    // used to open on the Signal Plot by itself); the diagram keeps its zoom
+    expect((await trayAndDock(page)).tray).toBeLessThanOrEqual(36);
     await page.waitForTimeout(1000); // a re-fit would wait for the size to settle
     expect(await zoomOf(page)).toBe(zoom);
   });

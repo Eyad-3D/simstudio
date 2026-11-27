@@ -183,7 +183,8 @@ interface UIState {
   openLastAtStart: boolean;
   setOpenLastAtStart: (on: boolean) => void;
   /** Open the Results page when a run or sweep ends; off, the page stays
-   *  where the user is and a notice offers the results (UX-21). */
+   *  where the user is and a notice offers the results (UX-21). Ticked on
+   *  the Results page's ribbon; stored as before (RESULTS_AFTER_RUN_KEY). */
   resultsAfterRun: boolean;
   setResultsAfterRun: (on: boolean) => void;
   /** Table cells shaded by value, per kind of table, kept per user. */
@@ -198,10 +199,6 @@ interface UIState {
    *  tray or leaving a maximised diagram when needed), first putting it back
    *  in its place if the user closed it. */
   focusPanel: (id: string) => void;
-  /** Until when (Date.now() ms) the diagram keeps its view as its size
-   *  changes: the Signal Plot the first run opens does not re-fit it. */
-  diagramViewHeldUntil: number;
-  holdDiagramView: (ms: number) => void;
 
   /** Layer Configurations: per-kind edge visibility on the canvas. */
   visibleKinds: Record<EdgeKindFilter, boolean>;
@@ -340,9 +337,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     set((s) => ({
       visibleKinds: { ...s.visibleKinds, [kind]: !s.visibleKinds[kind] },
     })),
-
-  diagramViewHeldUntil: 0,
-  holdDiagramView: (ms) => set({ diagramViewHeldUntil: Date.now() + ms }),
 
   placingComponentId: null,
   setPlacingComponent: (defId) => set({ placingComponentId: defId }),
