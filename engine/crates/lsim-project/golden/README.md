@@ -1191,3 +1191,43 @@ bev-car City, as before). No time moves: on four slices, best of 7
 alternating rounds against the module before it (CPUs 8-15), ratios
 0.998 (bev-car City), 0.979 (hybrid Mixed), 1.003 (aero-bev UDDS) and
 0.985 (bev-car WLTC).
+
+## A tick a few ulps after an output point runs at its own time (27 November 2026)
+
+What 46f78707 recorded (the entry above): to make the point at 1.3 show a
+tick at 13 · 0.1 = 1.3000000000000003, it ran the tick at the point's time.
+That made a run depend on its output grid: a tick that changes outputs
+restarts the integrator there, a few ulps earlier on one grid than on
+another, and the steps that follow differ (the hybrid's first 200 s: lost
+energy 1,620,823.32 J at a 1 s grid, .997 at 0.1 s, .820 at 0.5 s, where
+the run before it gave .909 on all three; the app's run, with its 0.1 s
+trace, and a direct run with 1 s points disagreed by 4e-7). Now the tick
+runs first at its own time, and the output point a few ulps before it is
+taken by the event (`at_point` in `after_event`), recorded under its own
+time with the values after the tick, its left limit those before. A tick
+that changes nothing the integrator reads records such a point with its
+iteration variables solved again, as `grid_point` does (89c86bf0 had
+missed that path: a run with a display block recorded interpolated values
+where the run without it recorded solved ones, which
+`state_choice.rs::events_and_ticks_near_the_point_leave_the_run_choosing_again`
+caught). The run is again the same on every grid.
+
+The hybrid's steps, events and block changes go back to the record before
+46f78707 (89c86bf0's) in every case; its values at points move from that
+record by 4e-13 at most (one channel near 7e-11 by 2.3e-7 of itself,
+1.6e-17 absolute: the point now showing the tick). The battery-electric
+and FS cases are kept to the byte. Against the record before this entry,
+as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| hybrid-car/case-hwfet | 1.5e-07 (HV Battery — internal losses) | 2.3e-07 | 904041 → 903483 | 77126 → 77060 | 1.6e-13 → 9.7e-12 |
+| hybrid-car/case-mixed | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296701 → 296432 | 56254 → 56222 | 3.4e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296701 → 296432 | 56254 → 56222 | 3.4e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 3.1e-07 (Phase Bag 2 — fuel consumption) | 5.0e-07 | 1648890 → 1649302 | 118499 → 118505 | 2.9e-11 → 3.0e-11 |
+
+Books inside 1.5e-9 (the hybrid 3.0e-11 at most; worst of all 1.467e-9,
+bev-car City, as before). Time: on four slices, best of 7 alternating
+rounds against the module before it (CPUs 8-15), ratios 1.043 (bev-car
+City, which has no sampled block: noise), 1.004 (hybrid Mixed), 1.007
+(aero-bev UDDS) and 1.003 (bev-car WLTC).

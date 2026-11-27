@@ -4870,18 +4870,13 @@ fn run_watched<'a>(
                     tick = Some((b, tk));
                 }
             }
-            // a tick a few ulps from the output point (a Sample Time's
-            // 13 · 0.1 against the grid's 1.3) is at it: one instant, run at
-            // the point's time, which then shows the tick
-            if let (Some(g), Some((b, tk))) = (tg, tick)
-                && g != tk
-                && same_instant(g, tk)
-            {
-                tick = Some((b, g));
-            }
+            // a tick a few ulps after the output point (a Sample Time's
+            // 13 · 0.1 against the grid's 1.3) is at it: it runs first, at
+            // its own time (the run does not depend on its grid), and the
+            // point shows it (after_event)
             match (tg, tick) {
                 (None, None) => break,
-                (Some(g), Some((_, tk))) if g < tk => {
+                (Some(g), Some((_, tk))) if g < tk && !same_instant(g, tk) => {
                     grid_point(&mut lp, &mut rec, integ, &mut ledger, g, &mut yk, &d)?;
                 }
                 (Some(g), None) => {
@@ -5150,6 +5145,15 @@ fn run_watched<'a>(
                         for &b in &due_clocks {
                             clocks[b].stop_next = false;
                         }
+                        // (an output point there: recorded as the run without
+                        // the tick records it, its iteration variables solved
+                        // again as grid_point does; yk stays the integrator's)
+                        let mut y_at = None;
+                        if rec.next_grid_time().is_some_and(|g| at_point(g, tk)) {
+                            let mut v = yk.clone();
+                            solve_z_aside(&lp, integ, tk, &mut v, &d);
+                            y_at = Some(v);
+                        }
                         after_event(
                             &mut lp,
                             &mut rec,
@@ -5158,7 +5162,7 @@ fn run_watched<'a>(
                             before,
                             &before_vars,
                             tk,
-                            &yk,
+                            y_at.as_deref().unwrap_or(&yk),
                             &d,
                             None,
                         )?;
@@ -5867,6 +5871,25 @@ fn worst_parts_words(e: &crate::EnergyBooks) -> String {
     }
 }
 
+/// Whether an event at `t` takes the output point `g`: at it, or a few ulps
+/// after it (a tick the run loop ran before the point: its time is its own).
+fn at_point(g: f64, t: f64) -> bool {
+    g == t || (g < t && same_instant(g, t))
+}
+
+/// `y`'s iteration variables solved again at `t`, the states held: those
+/// interpolated solve their equations only to the interpolation's error (an
+/// open differential's two shares, one read from a residual, 2.5e-2 N·m
+/// apart at rtol 1e-6); kept as they are where that solve fails.
+fn solve_z_aside(lp: &Loop<'_>, integ: &mut dyn Integrator, t: f64, y: &mut [f64], d: &[f64]) {
+    if lp.model.layout().n_z > 0 {
+        let mut ys = y.to_vec();
+        if integ.consistent_z_aside(t, &mut ys, d).is_ok() {
+            y.copy_from_slice(&ys);
+        }
+    }
+}
+
 /// A grid point inside the last step, from the dense output.
 fn grid_point(
     lp: &mut Loop<'_>,
@@ -5878,16 +5901,7 @@ fn grid_point(
     d: &[f64],
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
-    // the iteration variables, interpolated, solve their equations only to
-    // the interpolation's error (an open differential's two shares, one
-    // read from a residual, 2.5e-2 N·m apart at rtol 1e-6): solved again
-    // with the states held; kept as interpolated where that solve fails
-    if lp.model.layout().n_z > 0 {
-        let mut ys = yk.to_vec();
-        if integ.consistent_z_aside(t, &mut ys, d).is_ok() {
-            yk.copy_from_slice(&ys);
-        }
-    }
+    solve_z_aside(lp, integ, t, yk, d);
     lp.sample(t, yk, d);
     // (a trace's time alone is no point of the books)
     if rec.grid_point(t, lp.recorded())
@@ -5963,10 +5977,10 @@ fn after_event(
     if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
-    if rec.next_grid_time() == Some(t) {
+    if let Some(g) = rec.next_grid_time().filter(|&g| at_point(g, t)) {
         let left = lp.recorded_of(left);
-        rec.left_limit(t, &left, lp.recorded());
-        if rec.grid_point(t, lp.recorded())
+        rec.left_limit(g, &left, lp.recorded());
+        if rec.grid_point(g, lp.recorded())
             && let Some(lg) = ledger.as_mut()
         {
             integ.quadrature(t, &mut lg.q)?;

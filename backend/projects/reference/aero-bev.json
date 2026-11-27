@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): the app's engine's runs, written by backend/tests/update_stored.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "ae13b323",
+  "gitCommit": "7cae4c6c",
   "solver": "the app's engine (new 0.1.0): variable step, rtol 1e-06, atol 1e-08; recorded every 1 s",
-  "date": "2026-11-26",
+  "date": "2026-11-27",
   "machine": "Linux x86_64, Python 3.11.17",
-  "note": "a sampled block tick a few ulps from an output point runs at the point (the hybrid Hybrid Control Unit at 1 s points): final SOC by up to 6.9e-6 %, fuel by up to 4.6e-7 l/100km"
+  "note": "a sampled block tick a few ulps after an output point runs at its own time, the point showing it (the run no longer depends on its output grid): the hybrid back to its values before 46f78707"
  },
  "cases": {
   "case-udds": {
