@@ -258,6 +258,17 @@ function TopologyCanvasInner() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   // the floating project name and toolbar over the diagram's top edge
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  // its height as drawn (the toolbar wraps in a narrow panel): the energy
+  // box opens just under it, never over the toolbar
+  const [overlayH, setOverlayH] = useState(40);
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    setOverlayH(el.offsetHeight);
+    const ro = new ResizeObserver(() => setOverlayH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // whether the last click was on the diagram (its toolbar and menu count)
@@ -1188,7 +1199,7 @@ function TopologyCanvasInner() {
             />
           )}
         </ReactFlow>
-        <EnergyBars />
+        <EnergyBars top={overlayH + 4} />
         {adding && (
           <AddPartBox
             x={adding.x}

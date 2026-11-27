@@ -20,6 +20,8 @@ export const DRAFT_KEY = "lightsim-draft-v1";
 export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
 /** "1": open the Results page when a run or sweep ends (store/uiStore.ts) */
 export const RESULTS_AFTER_RUN_KEY = "lightsim-results-after-run";
+/** "1": the Energy view's "Energy lost per part" box is open, not folded to its button (store/reportsStore.ts) */
+export const ENERGY_BOX_KEY = "lightsim-energy-box";
 
 /** whether table cells are shaded by value, for curves and for maps (store/uiStore.ts) */
 export const TABLE_SHADE_KEY = "lightsim-table-shade";

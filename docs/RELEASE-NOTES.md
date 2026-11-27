@@ -970,9 +970,11 @@ sections.
   takes 27.3 %, rolling resistance 47.5 %, the E-Motor 9.7 % and the Final
   Drive 1.9 %, and −0.01 % is not accounted for. A case's **Energy
   report** (Cases tab, on by default) turns it off. The diagram's
-  lightning button labels each part with its energy and opens a bar chart
-  of the losses with a **Hide below** slider; a click on a bar selects the
-  part. (RES-22)
+  lightning button labels each part with its energy, and **Energy lost
+  per part**, a small button at the diagram's top right, opens a bar chart
+  of the losses with a **Hide below** slider (the button again, or the
+  chart's ×, folds it; LightSim remembers which); a click on a bar selects
+  the part. (RES-22)
 - A band along the bottom of the Results chart says what held the car
   back at every moment: braking, tyre grip, a set power limit, the battery
   or supply, the motor or engine, coasting, or nothing (the driver's
