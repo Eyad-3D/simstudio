@@ -2079,8 +2079,11 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
     trace saw it; and, as today's engine says it, a note when it first
     went above. A live edit of its maximum speed counts from its time on
     (``edges``: each machine's (t, maximum) from its edits)."""
+    import numpy as np  # (the module's own arrays: lightsim_engine needs NumPy)
+
     tr = run.trace or {}
-    times = [float(t) for t in tr.get("times", [])]
+    t_arr = np.asarray(tr.get("times", []), dtype=float)
+    times = t_arr.tolist()
     integ = run.integrals
     for el_id, m in (*ctx.motors.items(), *ctx.engines.items()):
         name = plan.speeds.get(el_id)
@@ -2088,21 +2091,23 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
         if name is None or not got or len(times) < 2:
             continue
         steps = (edges or {}).get(el_id) or [(0.0, use.edge)]
-
-        def n_at(t: float) -> float:  # the maximum in force at t
-            return [n for te, n in steps if te <= t][-1] if t >= steps[0][0] else steps[0][1]
+        # the maximum in force at each point: the last edit at or before it
+        at = np.searchsorted(np.asarray([te for te, _ in steps]), t_arr, side="right") - 1
+        n_arr = np.asarray([n for _, n in steps], dtype=float)[np.maximum(at, 0)]
         band = 1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0)
-        xs = [abs(float(x)) for x in tr[name]]
+        x_arr = np.abs(np.asarray(tr[name], dtype=float))
+        xs = x_arr.tolist()
+        top = n_arr[1:] * (1.0 + 1e-6) * band
+        a_arr, b_arr = x_arr[:-1] - top, x_arr[1:] - top
         above, first, n_first = 0.0, None, steps[0][1]
-        for k in range(1, len(times)):
-            top = n_at(times[k]) * (1.0 + 1e-6) * band
-            a, b, dt = xs[k - 1] - top, xs[k] - top, times[k] - times[k - 1]
-            if a > 0 or b > 0:
-                share = 1.0 if a > 0 and b > 0 else max(a, b) / abs(a - b)
-                above += share * dt
-                if first is None:
-                    first = times[k - 1] if a > 0 else times[k] - share * dt
-                    n_first = n_at(times[k])
+        # (only the pieces with an end above add; in order, as the sum went)
+        for k in (np.flatnonzero((a_arr > 0) | (b_arr > 0)) + 1).tolist():
+            a, b, dt = float(a_arr[k - 1]), float(b_arr[k - 1]), times[k] - times[k - 1]
+            share = 1.0 if a > 0 and b > 0 else max(a, b) / abs(a - b)
+            above += share * dt
+            if first is None:
+                first = times[k - 1] if a > 0 else times[k] - share * dt
+                n_first = float(n_arr[k])
         label = ctx.model.elements[el_id].label
         highest = max(float(got["max"]), -float(got["min"]))
         n_max = use.edge
@@ -2114,10 +2119,10 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
         if el_id in ctx.motors:
             # into the last 2 % below its maximum, where its drive torque
             # tapers to zero: today's note (MOD-18), at the first trace point there
-            k0 = next((k for k in range(len(xs))
-                       if xs[k] >= n_at(times[k]) * (1.0 - SPEED_LIMIT_BAND)), None)
-            if k0 is not None:
-                mc, n0 = ctx.motors[el_id], n_at(times[k0])
+            near = np.flatnonzero(x_arr >= n_arr * (1.0 - SPEED_LIMIT_BAND))
+            if near.size:
+                k0 = int(near[0])
+                mc, n0 = ctx.motors[el_id], float(n_arr[k0])
                 note = (", the last speed point of its full-load curve"
                         if n0 == motor_max_rpm(mc.full_load.pts, 0) else "")
                 messages.append(SimMessage(level="info", text=(
@@ -2498,28 +2503,35 @@ def _full_brake(ctx, plan: _Plan, run) -> list[str]:
     model = ctx.model
     if not model.driver or not ctx.veh_id:
         return []
-    tr = _Listed(run.trace)
-    times = tr.get("times", [])
+    import numpy as np  # (the module's own arrays: lightsim_engine needs NumPy)
+
+    tr = run.trace or {}
+    times = np.asarray(tr.get("times", []), dtype=float)
     ask = plan.supply.get(model.driver, {}).get("sig_brake_pedal")
     v = plan.supply.get(ctx.veh_id, {}).get("sig_speed")
     if ask is None or v is None or len(times) < 2:
         return []
 
-    def at(el_id: str, name: str, k: int) -> Optional[float]:
+    def col(el_id: str, name: str):
         key = plan.supply.get(el_id, {}).get(name)
-        return None if key is None else float(tr[key][k])
+        return None if key is None else np.asarray(tr[key], dtype=float)
 
+    # braking at 3 m/s or more
+    braking = (np.asarray(tr[ask], dtype=float) > 0) & (np.asarray(tr[v], dtype=float) >= 3.0)
     out = []
     for b_id in sorted({bus.battery for m in ctx.motors if (bus := ctx.motor_bus.get(m)) is not None
                         and bus.battery}):
         b = ctx.batteries[b_id]
-        for k in range(len(times)):
-            soc = at(b_id, "soc", k)
-            if tr[ask][k] > 0 and tr[v][k] >= 3.0 and (
-                    (soc is not None and soc >= 1.0 - 1e-9) or _full(b, at, k)):
-                out.append(f"Battery '{model.elements[b_id].label}' is full — no recuperation "
-                           f"while braking (t = {times[k]:.0f} s).")
-                break
+        soc = col(b_id, "soc")
+        full = np.zeros(len(times), dtype=bool) if soc is None else soc >= 1.0 - 1e-9
+        # too full to take its Max Charge Power (_full)
+        i_full, i_ch, taken = col(b_id, "i_full"), col(b_id, "i_ch_lim"), col(b_id, "p_absorb")
+        if i_full is not None and i_ch is not None and taken is not None:
+            full |= (i_full < i_ch) & (taken < b.max_charge_w * (1.0 - 1e-6))
+        hit = np.flatnonzero(braking & full)
+        if hit.size:
+            out.append(f"Battery '{model.elements[b_id].label}' is full — no recuperation "
+                       f"while braking (t = {float(times[hit[0]]):.0f} s).")
     return out
 
 
