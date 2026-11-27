@@ -79,7 +79,7 @@ test("RES-10: a re-run is named by its change and compared with the run before",
   await expect(info.getByRole("textbox", { name: "Note" })).toBeFocused();
   await page.keyboard.type("battery upgrade");
   await page.keyboard.press("Tab");
-  await expect(runRow(page, 0).show).toHaveAccessibleName("Show City Cycle · Heavier car");
+  await expect(runRow(page, 0).show).toHaveAccessibleName(/^Show City Cycle · Heavier car · /);
   await expect
     .poll(async () => (await (await page.request.get(`/api/projects/${id}/runs`)).json())[0])
     .toMatchObject({ name: "Heavier car", note: "battery upgrade" });

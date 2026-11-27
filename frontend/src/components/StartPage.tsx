@@ -25,8 +25,8 @@ function Thumb({ pts }: { pts?: [number, number][] }) {
   );
 }
 
-/** A project to start from. Its name and size name the button; a long
- *  description is read as its description, not as part of the name. The
+/** A project to start from. Its name and size name the button and are all
+ *  it shows; the description under it is read as its description. The
  *  description shows two lines; More opens the rest in place, Less folds it
  *  (`open`, one card at a time: the page holds which). */
 function Card({
@@ -70,18 +70,18 @@ function Card({
         onClick={onClick}
       >
         <Thumb pts={pts} />
-        <span className="text-title font-semibold text-[color:var(--ss-text)]">{title}</span>
+        <span className="text-title font-semibold text-[color:var(--ss-text)]">{title}</span>{" "}
         <span className="text-meta text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
-        {text && (
-          <span
-            ref={body}
-            id={`${id}-text`}
-            className={`whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)] ${open ? "" : "line-clamp-2"}`}
-          >
-            {text}
-          </span>
-        )}
       </button>
+      {text && (
+        <span
+          ref={body}
+          id={`${id}-text`}
+          className={`mx-2.5 mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)] ${open ? "" : "line-clamp-2"}`}
+        >
+          {text}
+        </span>
+      )}
       {text && onToggle && (open || cut) ? (
         <button
           className="mx-2.5 mb-2 self-start rounded text-meta text-[color:var(--ss-accent)] underline focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
