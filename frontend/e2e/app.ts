@@ -90,12 +90,12 @@ export function runRow(page: Page, i: number): { row: Locator; tick: Locator; sh
   return { row, tick: row.getByRole("checkbox"), show: row.getByRole("button", { name: /^Show / }) };
 }
 
-/** The runs in the table, as their show buttons name them ("City Cycle · 09:12:30"). */
+/** The runs in the table, as their labels name them ("City Cycle · 09:12:30"). */
 export function runNames(page: Page): Promise<string[]> {
   return page
     .getByRole("region", { name: "Runs" })
     .getByRole("button", { name: /^Show / })
-    .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")!.replace(/^Show /, "")));
+    .evaluateAll((bs) => bs.map((b) => b.getAttribute("data-run-label")!));
 }
 
 /** The global Run button in the ribbon header (runs the active case). */

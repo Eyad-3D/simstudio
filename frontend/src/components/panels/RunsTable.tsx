@@ -108,6 +108,8 @@ export function RunsTable({
               const shown = r.id === shownId;
               const on = shown || drawn.has(r.id);
               const label = runLabel(r);
+              // (its name holds this, the words it shows)
+              const ran = ranText(r.startedAt, undefined, isShipped(r));
               const status = reading.has(r.id) ? "reading…" : statusText(r);
               return (
                 <tr
@@ -145,8 +147,14 @@ export function RunsTable({
                   </td>
                   <td className={`ss-td whitespace-nowrap ${shown ? "font-semibold" : ""}`}>
                     {/* the keyboard's way to show it */}
-                    <button className="text-left" aria-label={`Show ${label}`} aria-pressed={shown} onClick={() => !shown && onShow(r)}>
-                      {ranText(r.startedAt, undefined, isShipped(r))}
+                    <button
+                      className="text-left"
+                      aria-label={`Show ${label}${label.includes(ran) ? "" : ` · ${ran}`}`}
+                      data-run-label={label}
+                      aria-pressed={shown}
+                      onClick={() => !shown && onShow(r)}
+                    >
+                      {ran}
                     </button>
                   </td>
                   {named && <td className="ss-td max-w-[220px] truncate">{rowName(r)}</td>}
